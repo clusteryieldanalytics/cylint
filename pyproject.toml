@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cylint"
+version = "0.1.0"
+description = "PySpark anti-pattern linter — catch the code that costs you money"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [
+    { name = "Cluster Yield Analytics" },
+]
+keywords = ["pyspark", "spark", "linter", "anti-pattern", "performance"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+# Zero external dependencies for the core linter
+dependencies = []
+
+[project.optional-dependencies]
+snapshot = ["requests"]
+
+[project.scripts]
+cy = "cylint.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/clusteryieldanalytics/cylint"
+Issues = "https://github.com/clusteryieldanalytics/cylint/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cylint"]
