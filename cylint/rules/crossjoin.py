@@ -25,7 +25,7 @@ class CrossJoinRule(BaseRule):
             if not isinstance(func, ast.Attribute):
                 continue
 
-            # Explicit .crossJoin()
+            # Explicit .crossJoin() — PySpark-specific, no ambiguity
             if func.attr == "crossJoin":
                 findings.append(self._make_finding(
                     filepath=filepath,
@@ -41,7 +41,12 @@ class CrossJoinRule(BaseRule):
                 continue
 
             # Implicit cross join: .join(other) with no `on` parameter
+            # Must be on a tracked DataFrame — .join() is also a common
+            # string/list method and would otherwise false-positive heavily.
             if func.attr == "join":
+                root = find_root_name(func.value)
+                if root is None or not tracker.is_tracked(root):
+                    continue
                 if self._is_missing_join_condition(node):
                     findings.append(self._make_finding(
                         filepath=filepath,

@@ -4,7 +4,7 @@ import ast
 
 from cylint.models import Finding, RuleMeta, Severity
 from cylint.rules import BaseRule, register_rule
-from cylint.tracker import DataFrameTracker
+from cylint.tracker import DataFrameTracker, find_root_name
 
 
 @register_rule
@@ -20,6 +20,7 @@ class CacheRule(BaseRule):
         findings = []
 
         # Step 1: Find all assignments where .cache() or .persist() is called
+        #         on a tracked DataFrame.
         cached_vars: dict[str, int] = {}  # var_name → line_number
 
         for node in ast.walk(tree):
@@ -31,6 +32,11 @@ class CacheRule(BaseRule):
             if not isinstance(func, ast.Attribute):
                 continue
             if func.attr not in ("cache", "persist"):
+                continue
+
+            # Must be on a tracked DataFrame
+            root = find_root_name(func.value)
+            if root is not None and not tracker.is_tracked(root):
                 continue
 
             for target in node.targets:
@@ -48,8 +54,10 @@ class CacheRule(BaseRule):
                 continue
             if func.attr not in ("cache", "persist"):
                 continue
-            # Get the variable it's called on
+            # Get the variable it's called on — must be a tracked DataFrame
             if isinstance(func.value, ast.Name):
+                if not tracker.is_tracked(func.value.id):
+                    continue
                 cached_vars[func.value.id] = node.lineno
 
         if not cached_vars:

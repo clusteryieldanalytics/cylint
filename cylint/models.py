@@ -30,6 +30,7 @@ class Finding:
     col: int = 0
     end_line: Optional[int] = None
     suggestion: Optional[str] = None
+    action_count: Optional[int] = None  # CY014: number of repeated actions detected
 
     def __str__(self) -> str:
         return (

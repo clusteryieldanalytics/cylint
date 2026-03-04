@@ -200,6 +200,12 @@ sample = cached.limit(10).collect()
 cached.write.parquet("/out")
 """, "CY005")
 
+    def test_non_df_cache_no_finding(self):
+        """cache() on a non-DataFrame should not trigger."""
+        self.assert_no_findings("""
+result = some_object.cache()
+""", "CY005")
+
 
 class TestCY006ToPandas(RuleTestBase):
     """CY006: .toPandas() on unfiltered DataFrame."""
@@ -252,6 +258,20 @@ c = a.join(b, on="id")
 a = spark.table("a")
 b = spark.table("b")
 c = a.join(b, a.id == b.id)
+""", "CY007")
+
+    def test_string_join_no_finding(self):
+        """str.join() must not trigger CY007."""
+        self.assert_no_findings("""
+cols = ["a", "b", "c"]
+result = ",".join(cols)
+""", "CY007")
+
+    def test_untracked_join_no_finding(self):
+        """join() on a non-DataFrame variable must not trigger."""
+        self.assert_no_findings("""
+items = get_items()
+result = items.join(other)
 """, "CY007")
 
 

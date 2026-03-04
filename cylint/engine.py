@@ -2,6 +2,7 @@
 
 import ast
 import os
+import warnings
 from pathlib import Path
 
 from cylint.models import Finding, LintResult, Severity
@@ -15,14 +16,22 @@ from cylint.tracker import (
 )
 
 # Import rules to trigger registration
-import cylint.rules.collect      # noqa: F401
-import cylint.rules.udf          # noqa: F401
-import cylint.rules.withcolumn   # noqa: F401
-import cylint.rules.select_star  # noqa: F401
-import cylint.rules.cache        # noqa: F401
-import cylint.rules.topandas     # noqa: F401
-import cylint.rules.crossjoin    # noqa: F401
-import cylint.rules.repartition  # noqa: F401
+import cylint.rules.collect          # noqa: F401
+import cylint.rules.udf              # noqa: F401
+import cylint.rules.withcolumn       # noqa: F401
+import cylint.rules.select_star      # noqa: F401
+import cylint.rules.cache            # noqa: F401
+import cylint.rules.topandas         # noqa: F401
+import cylint.rules.crossjoin        # noqa: F401
+import cylint.rules.repartition      # noqa: F401
+import cylint.rules.udf_filter       # noqa: F401
+import cylint.rules.join_type        # noqa: F401
+import cylint.rules.loop_columns     # noqa: F401
+import cylint.rules.debug_methods    # noqa: F401
+import cylint.rules.coalesce_write   # noqa: F401
+import cylint.rules.repeated_actions # noqa: F401
+import cylint.rules.nonequi_join     # noqa: F401
+import cylint.rules.invalid_escape   # noqa: F401
 
 from cylint.rules import get_all_rules
 
@@ -58,22 +67,51 @@ class LintEngine:
 
     def lint_source(self, source: str, filepath: str = "<string>") -> list[Finding]:
         """Lint source code string and return findings."""
-        try:
-            tree = ast.parse(source, filename=filepath)
-        except SyntaxError:
-            return []
+        # Capture SyntaxWarnings (e.g. invalid escape sequences) during parse
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", SyntaxWarning)
+            try:
+                tree = ast.parse(source, filename=filepath)
+            except SyntaxError:
+                return []
+
+        # Convert captured SyntaxWarnings into CY016 findings
+        findings = self._warnings_to_findings(caught, filepath)
 
         # Phase 1: Build DataFrame tracker
         tracker = self._build_tracker(tree)
 
         # Phase 2: Run all rules
-        findings = []
         for rule in self.rules:
             rule_findings = rule.check(tree, tracker, filepath)
             findings.extend(rule_findings)
 
         # Sort by line number
         findings.sort(key=lambda f: (f.filepath, f.line, f.col))
+        return findings
+
+    def _warnings_to_findings(
+        self, caught: list[warnings.WarningMessage], filepath: str
+    ) -> list[Finding]:
+        """Convert captured SyntaxWarnings to CY016 findings."""
+        # Check if CY016 is active
+        cy016 = next((r for r in self.rules if r.META.rule_id == "CY016"), None)
+        if cy016 is None:
+            return []
+
+        findings = []
+        for w in caught:
+            if not issubclass(w.category, SyntaxWarning):
+                continue
+            findings.append(Finding(
+                rule_id="CY016",
+                severity=cy016.severity,
+                message=str(w.message),
+                filepath=filepath,
+                line=w.lineno or 0,
+                col=0,
+                suggestion="Use a raw string: r'...' instead of '...'",
+            ))
         return findings
 
     def lint_paths(self, paths: list[str], exclude: list[str] | None = None) -> LintResult:

@@ -50,6 +50,14 @@ Found 3 issues (1 critical, 2 warnings) in 1 file.
 | CY006 | warning | `.toPandas()` on unfiltered DataFrame — collects everything to driver |
 | CY007 | critical | `.crossJoin()` or `.join()` without condition — cartesian product |
 | CY008 | info | `.repartition()` before `.write()` — unnecessary shuffle |
+| CY009 | critical | UDF in `.filter()`/`.where()` — blocks predicate pushdown |
+| CY010 | warning | `.join()` without explicit `how=` — ambiguous join type |
+| CY011 | warning | `.withColumnRenamed()`/`.drop()` in a loop — O(n²) plan nodes |
+| CY012 | warning | `.show()`/`.display()`/`.printSchema()` left in production code |
+| CY013 | warning | `.coalesce(1)` before `.write()` — single-executor bottleneck |
+| CY014 | critical | Multiple actions without `.cache()` — recomputes full lineage each time |
+| CY015 | critical | Non-equi `.join()` condition — implicit cartesian product |
+| CY016 | info | Invalid escape sequence in string literal — use raw strings for regex |
 
 List all rules:
 
