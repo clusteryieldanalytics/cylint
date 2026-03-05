@@ -50,11 +50,12 @@ class CoalesceWriteRule(BaseRule):
                     f"{f' on `{root}`' if root else ''}"
                     " forces all data through a single executor task. "
                     "For large DataFrames this causes OOM. "
-                    "Use .repartition(N) for a controlled file count, or set "
-                    ".option('maxRecordsPerFile', N) on the writer."
+                    "Use .coalesce(N) with N > 1 for fewer output files, or set "
+                    ".option('maxRecordsPerFile', N) on the writer. "
+                    "Avoid .repartition(N) — it triggers a full shuffle (see CY008)."
                 ),
                 suggestion=(
-                    "Remove .coalesce(1) or use .repartition(N) with N > 1, "
+                    "Remove .coalesce(1) or use .coalesce(N) with N > 1, "
                     "or .option('maxRecordsPerFile', N)."
                 ),
             ))

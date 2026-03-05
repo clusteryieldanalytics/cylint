@@ -358,6 +358,126 @@ rows = df.collect()
 """, "CY014")
         self.assertEqual(findings[0].severity, Severity.CRITICAL)
 
+    # --- Cache tracking fixes ---
+
+    def test_chained_cache_in_assignment_no_finding(self):
+        """df = spark.table(...).filter(...).cache() should detect cache."""
+        self.assert_no_findings("""
+df = spark.table("orders").filter(col("date") > "2025-01-01").cache()
+n = df.count()
+df.write.parquet("s3://out")
+""", "CY014")
+
+    def test_cache_to_new_variable_no_finding(self):
+        """df2 = df.cache() should detect cache on df2."""
+        self.assert_no_findings("""
+df = spark.table("orders")
+df2 = df.cache()
+n = df2.count()
+df2.write.parquet("s3://out")
+""", "CY014")
+
+    def test_cache_propagated_through_chain_no_finding(self):
+        """Cache on parent should propagate to derived DataFrame."""
+        self.assert_no_findings("""
+df = spark.table("orders").cache()
+df2 = df.filter(col("date") > "2025-01-01")
+n = df2.count()
+df2.write.parquet("s3://out")
+""", "CY014")
+
+    def test_standalone_cache_expression_no_finding(self):
+        """df.cache() as standalone expression should detect cache."""
+        self.assert_no_findings("""
+df = spark.table("orders")
+df.cache()
+n = df.count()
+df.write.parquet("s3://out")
+""", "CY014")
+
+    def test_persist_variant_no_finding(self):
+        """df = spark.table(...).persist() should detect cache."""
+        self.assert_no_findings("""
+df = spark.table("orders").persist()
+n = df.count()
+df.write.parquet("s3://out")
+""", "CY014")
+
+    # --- Debug action exclusion ---
+
+    def test_show_plus_write_no_finding(self):
+        """show + write = only 1 real action, should not fire."""
+        self.assert_no_findings("""
+df = spark.table("orders")
+df.show()
+df.write.parquet("s3://out")
+""", "CY014")
+
+    def test_display_plus_write_no_finding(self):
+        """display + write = only 1 real action."""
+        self.assert_no_findings("""
+df = spark.table("orders")
+df.display()
+df.write.parquet("s3://out")
+""", "CY014")
+
+    def test_show_display_write_no_finding(self):
+        """show + display + write = still 1 real action."""
+        self.assert_no_findings("""
+df = spark.table("orders")
+df.show()
+df.display()
+df.write.parquet("s3://out")
+""", "CY014")
+
+    def test_printschema_plus_write_no_finding(self):
+        """printSchema + write = only 1 real action."""
+        self.assert_no_findings("""
+df = spark.table("orders")
+df.printSchema()
+df.write.parquet("s3://out")
+""", "CY014")
+
+    # --- Should still fire ---
+
+    def test_count_plus_write_fires(self):
+        """Two real actions without cache should fire."""
+        findings = self.assert_rule_found("""
+df = spark.table("orders")
+n = df.count()
+df.write.parquet("s3://out")
+""", "CY014")
+        self.assertEqual(findings[0].action_count, 2)
+
+    def test_show_count_write_fires(self):
+        """show + count + write = 2 real actions (count + write)."""
+        findings = self.assert_rule_found("""
+df = spark.table("orders")
+df.show()
+n = df.count()
+df.write.parquet("s3://out")
+""", "CY014")
+        self.assertEqual(findings[0].action_count, 2)
+
+    def test_multiple_writes_fires(self):
+        """Multiple writes without cache should fire."""
+        findings = self.assert_rule_found("""
+df = spark.table("orders")
+df.write.parquet("s3://parquet-out")
+df.write.csv("s3://csv-out")
+""", "CY014")
+        self.assertEqual(findings[0].action_count, 2)
+
+    def test_cache_on_different_variable_fires(self):
+        """Cache on a different variable should not suppress."""
+        findings = self.assert_rule_found("""
+df = spark.table("orders")
+df2 = spark.table("events").cache()
+n = df.count()
+df.write.parquet("s3://out")
+""", "CY014")
+        self.assertEqual(findings[0].action_count, 2)
+
 
 # ---------------------------------------------------------------------------
 # CY015 — Non-equi join
