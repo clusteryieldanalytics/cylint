@@ -148,6 +148,15 @@ while i < len(cols):
     i += 1
 """, "CY003")
 
+    def test_withcolumns_in_loop_no_finding(self):
+        """.withColumns() uses dict API, single plan node — no O(n²) issue."""
+        self.assert_no_findings("""
+df = spark.read.parquet("/data")
+batches = [{"a": "1", "b": "2"}, {"c": "3"}]
+for batch in batches:
+    df = df.withColumns(batch)
+""", "CY003")
+
 
 class TestCY004SelectStar(RuleTestBase):
     """CY004: SELECT * in SQL strings."""
@@ -294,6 +303,89 @@ df.coalesce(4).write.parquet("/out")
         self.assert_no_findings("""
 df = spark.read.parquet("/in")
 df2 = df.repartition(10)
+""", "CY008")
+
+    # --- Fire cases ---
+
+    def test_count_before_partitioned_write(self):
+        self.assert_rule_found("""
+df = spark.read.parquet("/in")
+df.repartition(200).write.partitionBy("date").parquet("/out")
+""", "CY008")
+
+    def test_column_no_partition_by(self):
+        self.assert_rule_found("""
+df = spark.read.parquet("/in")
+df.repartition("date").write.parquet("/out")
+""", "CY008")
+
+    def test_column_different_partition_by(self):
+        self.assert_rule_found("""
+df = spark.read.parquet("/in")
+df.repartition("user_id").write.partitionBy("date").parquet("/out")
+""", "CY008")
+
+    def test_count_plus_column(self):
+        self.assert_rule_found("""
+df = spark.read.parquet("/in")
+df.repartition(200, "date").write.partitionBy("date").parquet("/out")
+""", "CY008")
+
+    def test_broader_columns_than_partition_by(self):
+        self.assert_rule_found("""
+df = spark.read.parquet("/in")
+df.repartition("date", "user_id").write.partitionBy("date").parquet("/out")
+""", "CY008")
+
+    def test_no_args_repartition(self):
+        self.assert_rule_found("""
+df = spark.read.parquet("/in")
+df.repartition().write.parquet("/out")
+""", "CY008")
+
+    # --- Suppress cases (column-aligned repartition) ---
+
+    def test_exact_column_match_suppressed(self):
+        self.assert_no_findings("""
+df = spark.read.parquet("/in")
+df.repartition("date").write.partitionBy("date").parquet("/out")
+""", "CY008")
+
+    def test_multi_column_match_suppressed(self):
+        self.assert_no_findings("""
+df = spark.read.parquet("/in")
+df.repartition("year", "month").write.partitionBy("year", "month").parquet("/out")
+""", "CY008")
+
+    def test_subset_of_partition_by_suppressed(self):
+        self.assert_no_findings("""
+df = spark.read.parquet("/in")
+df.repartition("date").write.partitionBy("date", "region").parquet("/out")
+""", "CY008")
+
+    def test_f_col_style_suppressed(self):
+        self.assert_no_findings("""
+from pyspark.sql import functions as F
+df = spark.read.parquet("/in")
+df.repartition(F.col("date")).write.partitionBy("date").parquet("/out")
+""", "CY008")
+
+    def test_col_bare_style_suppressed(self):
+        self.assert_no_findings("""
+df = spark.read.parquet("/in")
+df.repartition(col("date")).write.partitionBy("date").parquet("/out")
+""", "CY008")
+
+    def test_intermediate_methods_suppressed(self):
+        self.assert_no_findings("""
+df = spark.read.parquet("/in")
+df.repartition("date").write.mode("overwrite").partitionBy("date").parquet("/out")
+""", "CY008")
+
+    def test_no_repartition_no_finding(self):
+        self.assert_no_findings("""
+df = spark.read.parquet("/in")
+df.write.partitionBy("date").parquet("/out")
 """, "CY008")
 
 

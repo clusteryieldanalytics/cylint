@@ -35,7 +35,7 @@ class WithColumnLoopRule(BaseRule):
             func = node.func
             if not isinstance(func, ast.Attribute):
                 continue
-            if func.attr not in ("withColumn", "withColumns"):
+            if func.attr != "withColumn":
                 continue
 
             # Check if this is on a tracked DataFrame or any variable

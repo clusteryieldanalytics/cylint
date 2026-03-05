@@ -10,7 +10,7 @@ from cylint.tracker import (
     FILTER_METHODS,
     ChainInfo,
     DataFrameTracker,
-    chain_has_filter,
+    get_chain_methods,
     is_dataframe_method_chain,
     is_spark_source,
 )
@@ -154,6 +154,8 @@ class LintEngine:
                 self._handle_assign(child, tracker)
             elif isinstance(child, ast.AnnAssign) and child.value:
                 self._handle_ann_assign(child, tracker)
+            elif isinstance(child, ast.Expr) and isinstance(child.value, ast.Call):
+                self._handle_expr_call(child.value, tracker)
             # Recurse into all children
             self._visit_node(child, tracker)
 
@@ -174,11 +176,14 @@ class LintEngine:
             # Method chain on tracked DataFrame
             root = is_dataframe_method_chain(value, tracker)
             if root is not None:
-                has_filter = chain_has_filter(value)
+                methods = set(get_chain_methods(value))
+                has_filter = bool(FILTER_METHODS & methods)
+                has_cache = bool({"cache", "persist"} & methods)
                 parent_info = tracker.get_info(root)
                 chain_info = ChainInfo(
                     source_line=node.lineno,
                     has_filter=has_filter or (parent_info.has_filter if parent_info else False),
+                    has_cache=has_cache or (parent_info.has_cache if parent_info else False),
                 )
                 tracker.track(name, node.lineno, chain_info)
                 continue
@@ -208,13 +213,32 @@ class LintEngine:
         else:
             root = is_dataframe_method_chain(node.value, tracker)
             if root is not None:
-                has_filter = chain_has_filter(node.value)
+                methods = set(get_chain_methods(node.value))
+                has_filter = bool(FILTER_METHODS & methods)
+                has_cache = bool({"cache", "persist"} & methods)
                 parent_info = tracker.get_info(root)
                 chain_info = ChainInfo(
                     source_line=node.lineno,
                     has_filter=has_filter or (parent_info.has_filter if parent_info else False),
+                    has_cache=has_cache or (parent_info.has_cache if parent_info else False),
                 )
                 tracker.track(name, node.lineno, chain_info)
+
+    def _handle_expr_call(self, call_node: ast.Call, tracker: DataFrameTracker):
+        """Handle standalone expression calls like df.cache() or df.persist()."""
+        func = call_node.func
+        if not isinstance(func, ast.Attribute):
+            return
+        if func.attr not in ("cache", "persist"):
+            return
+        if not isinstance(func.value, ast.Name):
+            return
+        name = func.value.id
+        if not tracker.is_tracked(name):
+            return
+        info = tracker.get_info(name)
+        if info and not info.has_cache:
+            info.has_cache = True
 
     def _is_excluded(self, filepath: Path, exclude_set: set[str]) -> bool:
         """Check if a file matches any exclude pattern."""
