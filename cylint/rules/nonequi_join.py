@@ -4,6 +4,7 @@ import ast
 
 from cylint.models import Finding, RuleMeta, Severity
 from cylint.rules import BaseRule, register_rule
+from cylint.rules.crossjoin import get_cy007_lines
 from cylint.tracker import DataFrameTracker, find_root_name
 
 
@@ -18,7 +19,7 @@ class NonEquiJoinRule(BaseRule):
 
     def check(self, tree: ast.Module, tracker: DataFrameTracker, filepath: str) -> list[Finding]:
         # Collect lines flagged by CY007 to avoid double-reporting
-        cy007_lines = self._get_cy007_lines(tree)
+        cy007_lines = get_cy007_lines(tree, tracker)
 
         findings = []
         for node in ast.walk(tree):
@@ -34,11 +35,17 @@ class NonEquiJoinRule(BaseRule):
             if node.lineno in cy007_lines:
                 continue
 
-            # Need at least 2 args (other_df, condition)
-            if len(node.args) < 2:
+            # Extract condition: positional arg[1] or keyword on=
+            condition = None
+            if len(node.args) >= 2:
+                condition = node.args[1]
+            else:
+                for kw in node.keywords:
+                    if kw.arg == "on":
+                        condition = kw.value
+                        break
+            if condition is None:
                 continue
-
-            condition = node.args[1]
 
             # String or list condition is always equi — skip
             if isinstance(condition, (ast.Constant, ast.List)):
@@ -107,20 +114,3 @@ class NonEquiJoinRule(BaseRule):
             and node.args[0].value is True
         )
 
-    def _get_cy007_lines(self, tree: ast.Module) -> set[int]:
-        """Detect lines where CY007 would fire (crossJoin or join without condition)."""
-        lines: set[int] = set()
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            func = node.func
-            if not isinstance(func, ast.Attribute):
-                continue
-            if func.attr == "crossJoin":
-                lines.add(node.lineno)
-            elif func.attr == "join":
-                # .join(other) with no condition
-                has_on = any(kw.arg == "on" for kw in node.keywords)
-                if not has_on and len(node.args) < 2:
-                    lines.add(node.lineno)
-        return lines

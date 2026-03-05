@@ -415,6 +415,65 @@ b = spark.table("b")
 c = a.join(b, (a.id == b.id) & (a.ts >= b.start))
 """, "CY015")
 
+    # --- Keyword on= cases ---
+
+    def test_keyword_on_greater_than(self):
+        self.assert_rule_found("""
+df = spark.table("orders")
+other = spark.table("events")
+df.join(other, on=df["ts"] > other["start"])
+""", "CY015")
+
+    def test_keyword_on_lit_true(self):
+        self.assert_rule_found("""
+from pyspark.sql import functions as F
+df = spark.table("orders")
+other = spark.table("events")
+df.join(other, on=F.lit(True), how="left")
+""", "CY015")
+
+    def test_keyword_on_not_equal(self):
+        self.assert_rule_found("""
+df = spark.table("orders")
+other = spark.table("events")
+df.join(other, on=df["ts"] != other["ts"], how="inner")
+""", "CY015")
+
+    def test_keyword_on_non_column_expr(self):
+        self.assert_rule_found("""
+from pyspark.sql import functions as F
+df = spark.table("orders")
+other = spark.table("events")
+df.join(other, on=F.length(F.col("name")) > 5)
+""", "CY015")
+
+    def test_keyword_on_string_no_finding(self):
+        self.assert_no_findings("""
+df = spark.table("orders")
+other = spark.table("events")
+df.join(other, on="user_id")
+""", "CY015")
+
+    def test_keyword_on_list_no_finding(self):
+        self.assert_no_findings("""
+df = spark.table("orders")
+other = spark.table("events")
+df.join(other, on=["user_id", "date"])
+""", "CY015")
+
+    def test_keyword_on_equi_no_finding(self):
+        self.assert_no_findings("""
+df = spark.table("orders")
+other = spark.table("events")
+df.join(other, on=df["id"] == other["id"], how="left")
+""", "CY015")
+
+    def test_string_join_no_finding(self):
+        """String .join() should not fire CY015."""
+        self.assert_no_findings("""
+result = ",".join(["a", "b", "c"])
+""", "CY015")
+
     def test_no_duplicate_with_cy007(self):
         """CY015 should not fire on lines already flagged by CY007."""
         findings = self.lint("""
