@@ -32,6 +32,11 @@ import cylint.rules.coalesce_write   # noqa: F401
 import cylint.rules.repeated_actions # noqa: F401
 import cylint.rules.nonequi_join     # noqa: F401
 import cylint.rules.invalid_escape   # noqa: F401
+import cylint.rules.window_partition   # noqa: F401
+import cylint.rules.schema_inference   # noqa: F401
+import cylint.rules.count_emptiness    # noqa: F401
+import cylint.rules.missing_unpersist  # noqa: F401
+import cylint.rules.collect_iteration  # noqa: F401
 
 from cylint.rules import get_all_rules
 
@@ -173,6 +178,17 @@ class LintEngine:
                 tracker.track(name, node.lineno, chain_info)
                 continue
 
+            # Simple alias: df2 = df
+            if isinstance(value, ast.Name) and tracker.is_tracked(value.id):
+                parent_info = tracker.get_info(value.id)
+                chain_info = ChainInfo(
+                    source_line=node.lineno,
+                    has_filter=parent_info.has_filter if parent_info else False,
+                    has_cache=parent_info.has_cache if parent_info else False,
+                )
+                tracker.track(name, node.lineno, chain_info)
+                continue
+
             # Method chain on tracked DataFrame
             root = is_dataframe_method_chain(value, tracker)
             if root is not None:
@@ -210,6 +226,14 @@ class LintEngine:
         name = node.target.id
         if is_spark_source(node.value):
             tracker.track(name, node.lineno)
+        elif isinstance(node.value, ast.Name) and tracker.is_tracked(node.value.id):
+            parent_info = tracker.get_info(node.value.id)
+            chain_info = ChainInfo(
+                source_line=node.lineno,
+                has_filter=parent_info.has_filter if parent_info else False,
+                has_cache=parent_info.has_cache if parent_info else False,
+            )
+            tracker.track(name, node.lineno, chain_info)
         else:
             root = is_dataframe_method_chain(node.value, tracker)
             if root is not None:
