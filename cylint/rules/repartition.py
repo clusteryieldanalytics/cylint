@@ -75,7 +75,7 @@ class RepartitionWriteRule(BaseRule):
         rule_id="CY008",
         name="repartition-before-write",
         description=".repartition() immediately before .write() triggers unnecessary shuffle",
-        default_severity=Severity.INFO,
+        default_severity=Severity.WARNING,
     )
 
     def check(self, tree: ast.Module, tracker: DataFrameTracker, filepath: str) -> list[Finding]:
@@ -143,7 +143,7 @@ class RepartitionWriteRule(BaseRule):
                         ),
                         suggestion=(
                             "For fewer output files, consider .coalesce(N) "
-                            "(avoids shuffle) or .option('maxRecordsPerFile', N)."
+                            "(avoids shuffle)."
                         ),
                     ))
                     break  # one finding per chain
