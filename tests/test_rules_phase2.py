@@ -403,6 +403,27 @@ n = df.count()
 df.write.parquet("s3://out")
 """, "CY014")
 
+    # --- Alias tracking ---
+
+    def test_alias_tracked_as_dataframe(self):
+        """df2 = df (bare alias) should be tracked, so actions count."""
+        findings = self.assert_rule_found("""
+df = spark.table("orders")
+df2 = df
+n = df2.count()
+df2.write.parquet("s3://out")
+""", "CY014")
+        self.assertEqual(findings[0].action_count, 2)
+
+    def test_alias_inherits_cache(self):
+        """df2 = df where df is cached should suppress CY014."""
+        self.assert_no_findings("""
+df = spark.table("orders").cache()
+df2 = df
+n = df2.count()
+df2.write.parquet("s3://out")
+""", "CY014")
+
     # --- Debug action exclusion ---
 
     def test_show_plus_write_no_finding(self):
@@ -653,6 +674,139 @@ pattern = re.compile('\d+')
 x = '\d'
 """, "CY016")
         self.assertEqual(findings[0].severity, Severity.INFO)
+
+
+# ---------------------------------------------------------------------------
+# CY017 — Window function without partitionBy
+# ---------------------------------------------------------------------------
+class TestCY017WindowPartition(RuleTestBase):
+    """CY017: Window.orderBy() without .partitionBy() — full-table sort."""
+
+    # --- Should fire ---
+
+    def test_variable_no_partition_by(self):
+        self.assert_rule_found("""
+from pyspark.sql.window import Window
+from pyspark.sql import functions as F
+w = Window.orderBy("ts")
+df = spark.table("events")
+df.withColumn("rn", F.row_number().over(w))
+""", "CY017")
+
+    def test_inline_window_spec(self):
+        self.assert_rule_found("""
+from pyspark.sql.window import Window
+from pyspark.sql import functions as F
+df = spark.table("events")
+df.withColumn("rn", F.row_number().over(Window.orderBy("ts")))
+""", "CY017")
+
+    def test_order_by_desc_no_partition(self):
+        self.assert_rule_found("""
+from pyspark.sql.window import Window
+from pyspark.sql import functions as F, col
+w = Window.orderBy(col("ts").desc())
+df = spark.table("events")
+df.withColumn("rank", F.rank().over(w))
+""", "CY017")
+
+    def test_range_between_no_partition(self):
+        self.assert_rule_found("""
+from pyspark.sql.window import Window
+from pyspark.sql import functions as F
+w = Window.orderBy("ts").rangeBetween(Window.unboundedPreceding, 0)
+df = spark.table("events")
+df.withColumn("running_total", F.sum("amount").over(w))
+""", "CY017")
+
+    def test_multiple_order_columns_no_partition(self):
+        self.assert_rule_found("""
+from pyspark.sql.window import Window
+from pyspark.sql import functions as F
+w = Window.orderBy("ts", "user_id")
+df = spark.table("events")
+df.withColumn("rn", F.row_number().over(w))
+""", "CY017")
+
+    # --- Should NOT fire ---
+
+    def test_partition_by_before_order_by_no_finding(self):
+        self.assert_no_findings("""
+from pyspark.sql.window import Window
+from pyspark.sql import functions as F
+w = Window.partitionBy("user_id").orderBy("ts")
+df = spark.table("events")
+df.withColumn("rn", F.row_number().over(w))
+""", "CY017")
+
+    def test_partition_by_after_order_by_no_finding(self):
+        self.assert_no_findings("""
+from pyspark.sql.window import Window
+from pyspark.sql import functions as F
+w = Window.orderBy("ts").partitionBy("user_id")
+df = spark.table("events")
+df.withColumn("rn", F.row_number().over(w))
+""", "CY017")
+
+    def test_partition_by_only_no_finding(self):
+        self.assert_no_findings("""
+from pyspark.sql.window import Window
+from pyspark.sql import functions as F
+w = Window.partitionBy("dept")
+df = spark.table("employees")
+df.withColumn("dept_count", F.count("*").over(w))
+""", "CY017")
+
+    def test_dynamic_partition_cols_no_finding(self):
+        self.assert_no_findings("""
+from pyspark.sql.window import Window
+from pyspark.sql import functions as F
+w = Window.partitionBy(*partition_cols).orderBy("ts")
+df = spark.table("events")
+df.withColumn("rn", F.row_number().over(w))
+""", "CY017")
+
+    def test_window_defined_but_unused_no_finding(self):
+        self.assert_no_findings("""
+from pyspark.sql.window import Window
+w = Window.orderBy("ts")
+""", "CY017")
+
+    def test_partition_by_via_reassignment_no_finding(self):
+        self.assert_no_findings("""
+from pyspark.sql.window import Window
+from pyspark.sql import functions as F
+w = Window.orderBy("ts")
+w = w.partitionBy("user_id")
+df = spark.table("events")
+df.withColumn("rn", F.row_number().over(w))
+""", "CY017")
+
+    # --- Edge cases ---
+
+    def test_multiple_specs_only_unpartitioned_fires(self):
+        """Two window specs: one partitioned, one not. Only unpartitioned fires."""
+        findings = self.lint("""
+from pyspark.sql.window import Window
+from pyspark.sql import functions as F
+w1 = Window.partitionBy("user_id").orderBy("ts")
+w2 = Window.orderBy("ts")
+df = spark.table("events")
+df.withColumn("rn1", F.row_number().over(w1))
+df.withColumn("rn2", F.row_number().over(w2))
+""")
+        cy017 = [f for f in findings if f.rule_id == "CY017"]
+        self.assertEqual(len(cy017), 1)
+
+    def test_severity_is_warning(self):
+        findings = self.assert_rule_found("""
+from pyspark.sql.window import Window
+from pyspark.sql import functions as F
+w = Window.orderBy("ts")
+df = spark.table("events")
+df.withColumn("rn", F.row_number().over(w))
+""", "CY017")
+        self.assertEqual(findings[0].severity, Severity.WARNING)
 
 
 if __name__ == "__main__":
