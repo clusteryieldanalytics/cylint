@@ -68,7 +68,19 @@ class LintEngine:
     def lint_file(self, filepath: str) -> list[Finding]:
         """Lint a single Python file and return findings."""
         source = Path(filepath).read_text(encoding="utf-8")
-        return self.lint_source(source, filepath)
+        findings = self.lint_source(source, filepath)
+
+        # Annotate findings with cell coordinates for Databricks notebooks
+        from cylint.ci.cell_map import absolute_to_cell, build_cell_map, is_databricks_notebook
+        if is_databricks_notebook(source):
+            cell_map = build_cell_map(source)
+            for f in findings:
+                result = absolute_to_cell(f.line, cell_map)
+                if result:
+                    f.cell_fingerprint = result[0]
+                    f.cell_line = result[1]
+
+        return findings
 
     def lint_source(self, source: str, filepath: str = "<string>") -> list[Finding]:
         """Lint source code string and return findings."""
