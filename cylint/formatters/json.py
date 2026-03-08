@@ -2,7 +2,24 @@
 
 import json
 
-from cylint.models import LintResult
+from cylint.models import Finding, LintResult
+
+
+def _format_finding(f: Finding) -> dict:
+    """Format a single finding as a dict, including cell coords if present."""
+    d: dict = {
+        "rule_id": f.rule_id,
+        "severity": str(f.severity),
+        "message": f.message,
+        "filepath": f.filepath,
+        "line": f.line,
+        "col": f.col,
+        "suggestion": f.suggestion,
+    }
+    if f.cell_fingerprint is not None:
+        d["cellFingerprint"] = f.cell_fingerprint
+        d["cellLine"] = f.cell_line
+    return d
 
 
 def format_result(result: LintResult) -> str:
@@ -12,18 +29,7 @@ def format_result(result: LintResult) -> str:
         "total_findings": len(result.findings),
         "exit_code": result.exit_code,
         "counts": {str(k): v for k, v in result.count_by_severity.items()},
-        "findings": [
-            {
-                "rule_id": f.rule_id,
-                "severity": str(f.severity),
-                "message": f.message,
-                "filepath": f.filepath,
-                "line": f.line,
-                "col": f.col,
-                "suggestion": f.suggestion,
-            }
-            for f in result.findings
-        ],
+        "findings": [_format_finding(f) for f in result.findings],
         "errors": result.errors,
     }
     return json.dumps(output, indent=2)

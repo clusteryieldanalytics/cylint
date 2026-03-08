@@ -31,6 +31,8 @@ class Finding:
     end_line: Optional[int] = None
     suggestion: Optional[str] = None
     action_count: Optional[int] = None  # CY014: number of repeated actions detected
+    cell_fingerprint: Optional[str] = None  # Databricks notebook cell fingerprint
+    cell_line: Optional[int] = None  # Cell-relative line number (1-indexed)
 
     def __str__(self) -> str:
         return (
