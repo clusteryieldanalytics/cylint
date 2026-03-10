@@ -1,6 +1,6 @@
 # cylint
 
-A PySpark linter that catches the anti-patterns costing you real money.
+A PySpark linter that catches various antipatterns.
 
 Static analysis for PySpark code. No Spark runtime needed. Zero dependencies. Runs anywhere Python runs.
 
