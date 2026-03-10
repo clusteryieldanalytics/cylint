@@ -56,6 +56,7 @@ class LintResult:
     findings: list[Finding] = field(default_factory=list)
     files_scanned: int = 0
     errors: dict[str, str] = field(default_factory=dict)  # filepath → error msg
+    cell_maps: dict[str, dict[str, int]] = field(default_factory=dict)  # filepath → {fingerprint → abs start line}
 
     @property
     def count_by_severity(self) -> dict[Severity, int]:

@@ -65,13 +65,18 @@ class LintEngine:
 
         self.min_severity = min_severity
 
-    def lint_file(self, filepath: str) -> list[Finding]:
-        """Lint a single Python file and return findings."""
+    def lint_file(self, filepath: str) -> tuple[list[Finding], dict[str, int] | None]:
+        """Lint a single Python file and return (findings, cell_map).
+
+        cell_map is None for plain .py scripts, or {fingerprint → abs start line}
+        for Databricks notebooks.
+        """
         source = Path(filepath).read_text(encoding="utf-8")
         findings = self.lint_source(source, filepath)
 
         # Annotate findings with cell coordinates for Databricks notebooks
         from cylint.ci.cell_map import absolute_to_cell, build_cell_map, is_databricks_notebook
+        cell_map: dict[str, int] | None = None
         if is_databricks_notebook(source):
             cell_map = build_cell_map(source)
             for f in findings:
@@ -80,7 +85,7 @@ class LintEngine:
                     f.cell_fingerprint = result[0]
                     f.cell_line = result[1]
 
-        return findings
+        return findings, cell_map
 
     def lint_source(self, source: str, filepath: str = "<string>") -> list[Finding]:
         """Lint source code string and return findings."""
@@ -142,7 +147,10 @@ class LintEngine:
                 if p.suffix == ".py" and not self._is_excluded(p, exclude_set):
                     result.files_scanned += 1
                     try:
-                        result.findings.extend(self.lint_file(str(p)))
+                        findings, cell_map = self.lint_file(str(p))
+                        result.findings.extend(findings)
+                        if cell_map is not None:
+                            result.cell_maps[str(p)] = cell_map
                     except Exception as e:
                         result.errors[str(p)] = str(e)
             elif p.is_dir():
@@ -151,7 +159,10 @@ class LintEngine:
                         continue
                     result.files_scanned += 1
                     try:
-                        result.findings.extend(self.lint_file(str(py_file)))
+                        findings, cell_map = self.lint_file(str(py_file))
+                        result.findings.extend(findings)
+                        if cell_map is not None:
+                            result.cell_maps[str(py_file)] = cell_map
                     except Exception as e:
                         result.errors[str(py_file)] = str(e)
 
