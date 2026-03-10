@@ -307,8 +307,15 @@ df2 = df.repartition(10)
 
     # --- Fire cases ---
 
-    def test_count_before_partitioned_write(self):
+    def test_small_count_before_partitioned_write(self):
         self.assert_rule_found("""
+df = spark.read.parquet("/in")
+df.repartition(10).write.partitionBy("date").parquet("/out")
+""", "CY008")
+
+    def test_large_count_before_write_no_finding(self):
+        """repartition(200) is increasing partitions — skip."""
+        self.assert_no_findings("""
 df = spark.read.parquet("/in")
 df.repartition(200).write.partitionBy("date").parquet("/out")
 """, "CY008")
@@ -325,16 +332,37 @@ df = spark.read.parquet("/in")
 df.repartition("user_id").write.partitionBy("date").parquet("/out")
 """, "CY008")
 
-    def test_count_plus_column(self):
-        self.assert_rule_found("""
+    def test_large_count_plus_column_no_finding(self):
+        """repartition(200, "date") is increasing — skip."""
+        self.assert_no_findings("""
 df = spark.read.parquet("/in")
 df.repartition(200, "date").write.partitionBy("date").parquet("/out")
+""", "CY008")
+
+    def test_small_count_plus_column(self):
+        self.assert_rule_found("""
+df = spark.read.parquet("/in")
+df.repartition(10, "date").write.partitionBy("date").parquet("/out")
 """, "CY008")
 
     def test_broader_columns_than_partition_by(self):
         self.assert_rule_found("""
 df = spark.read.parquet("/in")
 df.repartition("date", "user_id").write.partitionBy("date").parquet("/out")
+""", "CY008")
+
+    def test_boundary_count_101_no_finding(self):
+        """Count just above threshold — skip."""
+        self.assert_no_findings("""
+df = spark.read.parquet("/in")
+df.repartition(101).write.parquet("/out")
+""", "CY008")
+
+    def test_boundary_count_100_fires(self):
+        """Count at threshold — still fires."""
+        self.assert_rule_found("""
+df = spark.read.parquet("/in")
+df.repartition(100).write.parquet("/out")
 """, "CY008")
 
     def test_no_args_repartition(self):

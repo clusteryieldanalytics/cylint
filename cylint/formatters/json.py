@@ -22,9 +22,9 @@ def _format_finding(f: Finding) -> dict:
     return d
 
 
-def format_result(result: LintResult) -> str:
+def format_result(result: LintResult, *, export_cells: bool = False) -> str:
     """Format lint result as JSON."""
-    output = {
+    output: dict = {
         "files_scanned": result.files_scanned,
         "total_findings": len(result.findings),
         "exit_code": result.exit_code,
@@ -32,4 +32,9 @@ def format_result(result: LintResult) -> str:
         "findings": [_format_finding(f) for f in result.findings],
         "errors": result.errors,
     }
+    if export_cells and result.cell_maps:
+        output["cellMaps"] = {
+            filepath: cell_map
+            for filepath, cell_map in result.cell_maps.items()
+        }
     return json.dumps(output, indent=2)

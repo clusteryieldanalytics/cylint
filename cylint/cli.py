@@ -65,6 +65,11 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="Paths to exclude (can be repeated)",
     )
+    lint_parser.add_argument(
+        "--export-cells",
+        action="store_true",
+        help="Include Databricks notebook cell maps in JSON output",
+    )
 
     # cy rules
     rules_parser = subparsers.add_parser("rules", help="List available rules")
@@ -118,7 +123,7 @@ def _cmd_lint(args: argparse.Namespace) -> int:
     use_color = not args.no_color and sys.stdout.isatty()
 
     if args.format == "json":
-        print(json_fmt.format_result(result))
+        print(json_fmt.format_result(result, export_cells=args.export_cells))
     elif args.format == "github":
         print(github_fmt.format_result(result))
     else:

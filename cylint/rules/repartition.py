@@ -13,18 +13,19 @@ WRITE_METHODS = frozenset({
 })
 
 
-def _extract_repartition_info(call_node: ast.Call) -> tuple[bool, set[str]]:
+def _extract_repartition_info(call_node: ast.Call) -> tuple[int | None, set[str]]:
     """Extract argument types from a .repartition() call.
 
-    Returns (has_count, column_names).
+    Returns (count_value, column_names).  count_value is None if no
+    integer literal argument is present.
     """
-    has_count = False
+    count_value: int | None = None
     column_names: set[str] = set()
 
     for arg in call_node.args:
         if isinstance(arg, ast.Constant):
             if isinstance(arg.value, int):
-                has_count = True
+                count_value = arg.value
             elif isinstance(arg.value, str):
                 column_names.add(arg.value)
         # F.col("name") or col("name")
@@ -33,7 +34,7 @@ def _extract_repartition_info(call_node: ast.Call) -> tuple[bool, set[str]]:
             if func_name == "col" and arg.args and isinstance(arg.args[0], ast.Constant):
                 column_names.add(arg.args[0].value)
 
-    return has_count, column_names
+    return count_value, column_names
 
 
 def _extract_partition_by_columns(call_node: ast.Call) -> set[str]:
@@ -118,10 +119,15 @@ class RepartitionWriteRule(BaseRule):
                     if not isinstance(repart_node, ast.Call):
                         break
 
-                    has_count, repart_cols = _extract_repartition_info(repart_node)
+                    count_value, repart_cols = _extract_repartition_info(repart_node)
 
-                    # If repartition has an integer count, always flag
-                    if not has_count and repart_cols:
+                    # Skip if repartition is increasing partitions (count > 100).
+                    # Large counts indicate parallelism tuning, not output file
+                    # reduction.  .coalesce() only makes sense for decreasing.
+                    if count_value is not None and count_value > 100:
+                        break
+
+                    if count_value is None and repart_cols:
                         # Collect partitionBy columns from the write chain
                         partition_by_cols: set[str] = set()
                         for j in range(repartition_idx + 1, len(chain)):
