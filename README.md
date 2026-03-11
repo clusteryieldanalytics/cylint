@@ -145,12 +145,6 @@ repos:
 | 1 | Warnings or info findings |
 | 2 | Critical findings |
 
-## Why these rules?
-
-Every rule targets a pattern that either causes OOM crashes, triggers unnecessary shuffles, or prevents Spark's Catalyst optimizer from doing its job. These aren't style opinions — they're the patterns you find in postmortems after a 3am page about a failed pipeline or a $40K surprise on your Databricks bill.
-
-If you've read a "PySpark anti-patterns to avoid" blog post, you've seen these patterns described. This tool catches them automatically, before the code hits production.
-
 ## License
 
 Apache 2.0
