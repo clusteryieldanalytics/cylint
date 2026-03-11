@@ -405,6 +405,89 @@ result = df.groupBy("date").count()
 '''
         self.assert_rule_found(src, "CY025")
 
+    # --- Annotated assignment support ---
+
+    def test_annotated_assign_cache_fires(self):
+        """df: DataFrame = spark.table(...).cache() should be detected."""
+        src = '''\
+df: object = spark.table("orders").cache()
+result = df.groupBy("date").count()
+'''
+        self.assert_rule_found(src, "CY025")
+
+    def test_annotated_assign_with_unpersist_no_fire(self):
+        src = '''\
+df: object = spark.table("orders").cache()
+result = df.groupBy("date").count()
+df.unpersist()
+'''
+        self.assert_no_findings(src, "CY025")
+
+    # --- Attribute receiver support (self.df) ---
+
+    def test_self_df_cache_fires(self):
+        """self.df.cache() standalone should be detected."""
+        src = '''\
+def run(self):
+    self.df = spark.table("orders")
+    self.df.cache()
+    result = self.df.groupBy("date").count()
+'''
+        self.assert_rule_found(src, "CY025")
+
+    def test_self_df_cache_with_unpersist_no_fire(self):
+        src = '''\
+def run(self):
+    self.df = spark.table("orders")
+    self.df.cache()
+    result = self.df.groupBy("date").count()
+    self.df.unpersist()
+'''
+        self.assert_no_findings(src, "CY025")
+
+    def test_self_df_assigned_cache_fires(self):
+        """self.df = spark.table(...).cache() in assignment."""
+        src = '''\
+def setup(self):
+    self.df = spark.table("orders").cache()
+    n = self.df.count()
+'''
+        self.assert_rule_found(src, "CY025")
+
+    def test_self_df_assigned_cache_with_unpersist_no_fire(self):
+        src = '''\
+def setup(self):
+    self.df = spark.table("orders").cache()
+    n = self.df.count()
+    self.df.unpersist()
+'''
+        self.assert_no_findings(src, "CY025")
+
+    # --- Unpersist in assignment context ---
+
+    def test_unpersist_in_assignment_no_fire(self):
+        """result = df.unpersist() should count as unpersist."""
+        src = '''\
+df = spark.table("orders").cache()
+result = df.groupBy("date").count()
+cleaned = df.unpersist()
+'''
+        self.assert_no_findings(src, "CY025")
+
+    # --- Persist variant with attribute receiver ---
+
+    def test_self_df_persist_fires(self):
+        src = '''\
+def run(self):
+    self.df = spark.table("orders")
+    self.df.persist()
+    result = self.df.groupBy("date").count()
+'''
+        self.assert_rule_found(src, "CY025")
+        matched = self.assert_rule_found(src, "CY025")
+        self.assertIn("self.df", matched[0].message)
+        self.assertIn("persist", matched[0].message)
+
 
 # ---------------------------------------------------------------------------
 # CY031 — for row in df.collect()

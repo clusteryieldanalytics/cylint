@@ -7,6 +7,32 @@ from cylint.rules import BaseRule, register_rule
 from cylint.tracker import DataFrameTracker, get_chain_methods
 
 
+def _expr_key(node: ast.expr) -> str | None:
+    """Extract a dotted name key from an expression for tracking.
+
+    Supports:
+        ast.Name("df")           -> "df"
+        ast.Attribute(Name("self"), "df") -> "self.df"
+    Returns None for anything more complex.
+    """
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+        return f"{node.value.id}.{node.attr}"
+    return None
+
+
+def _find_receiver_key(call_node: ast.Call) -> str | None:
+    """Get the key of the object a method is called on.
+
+    For `df.cache()` returns "df".
+    For `self.df.cache()` returns "self.df".
+    """
+    if not isinstance(call_node.func, ast.Attribute):
+        return None
+    return _expr_key(call_node.func.value)
+
+
 @register_rule
 class MissingUnpersistRule(BaseRule):
     META = RuleMeta(
@@ -33,9 +59,7 @@ class MissingUnpersistRule(BaseRule):
 
     def _check_scope(self, scope: ast.AST, tracker: DataFrameTracker, filepath: str) -> list[Finding]:
         """Check a single scope for cache without unpersist."""
-        is_module = isinstance(scope, ast.Module)
-
-        cached_vars: dict[str, tuple[int, str]] = {}  # var_name -> (line, method)
+        cached_vars: dict[str, tuple[int, str]] = {}  # key -> (line, method)
         unpersisted: set[str] = set()
 
         # TODO: CY005 deduplication — if CY005 fires on a single-use cache,
@@ -43,40 +67,49 @@ class MissingUnpersistRule(BaseRule):
         nodes = self._get_scope_level_nodes(scope)
 
         for node in nodes:
-            # Detect cache/persist in assignment via method chain inspection
+            # Detect cache/persist in assignment: df2 = df.filter(...).cache()
             if isinstance(node, ast.Assign):
                 for target in node.targets:
-                    if not isinstance(target, ast.Name):
-                        continue
-                    if not isinstance(node.value, ast.Call):
+                    key = _expr_key(target)
+                    if key is None or not isinstance(node.value, ast.Call):
                         continue
                     methods = set(get_chain_methods(node.value))
-                    cache_method = None
-                    if "cache" in methods:
-                        cache_method = "cache"
-                    elif "persist" in methods:
-                        cache_method = "persist"
+                    cache_method = self._detect_cache_method(methods)
                     if cache_method is not None:
-                        cached_vars[target.id] = (node.lineno, cache_method)
+                        cached_vars[key] = (node.lineno, cache_method)
+                    # Also detect unpersist in assignment: result = df.unpersist()
+                    if "unpersist" in methods:
+                        recv = _find_receiver_key(node.value)
+                        if recv is not None:
+                            unpersisted.add(recv)
 
-            # Detect standalone cache/persist: df.cache()
+            # Detect cache/persist in annotated assignment: df: DataFrame = spark.table(...).cache()
+            if isinstance(node, ast.AnnAssign) and node.value is not None:
+                target_key = _expr_key(node.target) if isinstance(node.target, (ast.Name, ast.Attribute)) else None
+                if target_key is not None and isinstance(node.value, ast.Call):
+                    methods = set(get_chain_methods(node.value))
+                    cache_method = self._detect_cache_method(methods)
+                    if cache_method is not None:
+                        cached_vars[target_key] = (node.lineno, cache_method)
+                    if "unpersist" in methods:
+                        recv = _find_receiver_key(node.value)
+                        if recv is not None:
+                            unpersisted.add(recv)
+
+            # Detect standalone cache/persist: df.cache() / self.df.persist()
             if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
                 func = node.value.func
                 if isinstance(func, ast.Attribute) and func.attr in ("cache", "persist"):
-                    if isinstance(func.value, ast.Name):
-                        cached_vars[func.value.id] = (node.lineno, func.attr)
+                    key = _expr_key(func.value)
+                    if key is not None:
+                        cached_vars[key] = (node.lineno, func.attr)
 
-            # Detect .unpersist() calls (standalone or in expression)
-            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
-                func = node.value.func
-                if isinstance(func, ast.Attribute) and func.attr == "unpersist":
-                    if isinstance(func.value, ast.Name):
-                        unpersisted.add(func.value.id)
-
+            # Detect .unpersist() calls anywhere in walked nodes
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 if node.func.attr == "unpersist":
-                    if isinstance(node.func.value, ast.Name):
-                        unpersisted.add(node.func.value.id)
+                    key = _expr_key(node.func.value)
+                    if key is not None:
+                        unpersisted.add(key)
 
         # Emit findings for cached vars without unpersist
         findings = []
@@ -96,6 +129,14 @@ class MissingUnpersistRule(BaseRule):
             ))
 
         return findings
+
+    @staticmethod
+    def _detect_cache_method(methods: set[str]) -> str | None:
+        if "cache" in methods:
+            return "cache"
+        if "persist" in methods:
+            return "persist"
+        return None
 
     def _get_scope_level_nodes(self, scope: ast.AST) -> list[ast.AST]:
         """Get AST nodes in scope, excluding nested function/class bodies."""
