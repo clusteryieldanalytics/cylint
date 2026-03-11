@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cylint"
-version = "0.1.2"
+version = "0.1.3"
 description = "PySpark anti-pattern linter — catch the code that costs you money"
 readme = "README.md"
 license = "Apache-2.0"
