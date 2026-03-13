@@ -2,6 +2,7 @@
 
 import ast
 import os
+import re
 import warnings
 from pathlib import Path
 
@@ -108,6 +109,9 @@ class LintEngine:
             rule_findings = rule.check(tree, tracker, filepath)
             findings.extend(rule_findings)
 
+        # Phase 3: Filter out findings suppressed by inline # cy:ignore comments
+        findings = self._apply_ignore_comments(findings, source)
+
         # Sort by line number
         findings.sort(key=lambda f: (f.filepath, f.line, f.col))
         return findings
@@ -135,6 +139,32 @@ class LintEngine:
                 suggestion="Use a raw string: r'...' instead of '...'",
             ))
         return findings
+
+    # Matches: # cy:ignore CY001  or  # cy:ignore CY001,CY025  or  # cy:ignore (all)
+    _IGNORE_RE = re.compile(r"#\s*cy:ignore\b\s*(.*)")
+
+    def _apply_ignore_comments(self, findings: list[Finding], source: str) -> list[Finding]:
+        """Filter out findings on lines with a # cy:ignore comment."""
+        lines = source.splitlines()
+        kept = []
+        for f in findings:
+            if f.line < 1 or f.line > len(lines):
+                kept.append(f)
+                continue
+            line_text = lines[f.line - 1]
+            m = self._IGNORE_RE.search(line_text)
+            if m is None:
+                kept.append(f)
+                continue
+            rule_list = m.group(1).strip()
+            if not rule_list:
+                # Bare # cy:ignore — suppress all rules on this line
+                continue
+            ignored_ids = {r.strip() for r in rule_list.split(",")}
+            if f.rule_id in ignored_ids:
+                continue
+            kept.append(f)
+        return kept
 
     def lint_paths(self, paths: list[str], exclude: list[str] | None = None) -> LintResult:
         """Lint one or more files/directories and return aggregated result."""
