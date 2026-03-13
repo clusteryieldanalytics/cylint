@@ -14,6 +14,7 @@ from cylint.tracker import (
     get_chain_methods,
     is_dataframe_method_chain,
     is_spark_source,
+    unwrap_cache,
 )
 
 # Import rules to trigger registration
@@ -225,9 +226,12 @@ class LintEngine:
                 continue
             name = target.id
 
+            # Unwrap outer .cache()/.persist() to check for spark source
+            inner, has_cache_wrap = unwrap_cache(value)
+
             # Direct Spark source
-            if is_spark_source(value):
-                chain_info = ChainInfo(source_line=node.lineno)
+            if is_spark_source(inner):
+                chain_info = ChainInfo(source_line=node.lineno, has_cache=has_cache_wrap)
                 tracker.track(name, node.lineno, chain_info)
                 continue
 
@@ -277,8 +281,9 @@ class LintEngine:
         if not isinstance(node.target, ast.Name) or node.value is None:
             return
         name = node.target.id
-        if is_spark_source(node.value):
-            tracker.track(name, node.lineno)
+        inner, has_cache_wrap = unwrap_cache(node.value)
+        if is_spark_source(inner):
+            tracker.track(name, node.lineno, ChainInfo(source_line=node.lineno, has_cache=has_cache_wrap))
         elif isinstance(node.value, ast.Name) and tracker.is_tracked(node.value.id):
             parent_info = tracker.get_info(node.value.id)
             chain_info = ChainInfo(

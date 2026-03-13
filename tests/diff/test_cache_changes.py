@@ -130,6 +130,44 @@ result = cached.filter("x > 1")
         results = detect_cache_added(_match(base_orders, pr_cached), "test.py")
         self.assertEqual(len(results), 1)
 
+    def test_cache_added_chained_on_source(self):
+        """spark.table("orders").cache() added — cache chained directly on source."""
+        base_source = '''\
+orders = spark.table("orders")
+result = orders.filter("x > 1")
+'''
+        pr_source = '''\
+orders = spark.table("orders").cache()
+result = orders.filter("x > 1")
+'''
+        base_ops = extract_operations(base_source)
+        pr_ops = extract_operations(pr_source)
+        base_orders = [op for op in base_ops if op.variable == "orders"][0]
+        pr_orders = [op for op in pr_ops if op.variable == "orders"][0]
+        self.assertEqual(len(pr_orders.caches), 1)
+        results = detect_cache_added(_match(base_orders, pr_orders), "test.py")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].change_type, "cache_added")
+
+    def test_cache_removed_chained_on_source(self):
+        """spark.table("orders").cache() removed — cache chained directly on source."""
+        base_source = '''\
+orders = spark.table("orders").cache()
+result = orders.filter("x > 1")
+'''
+        pr_source = '''\
+orders = spark.table("orders")
+result = orders.filter("x > 1")
+'''
+        base_ops = extract_operations(base_source)
+        pr_ops = extract_operations(pr_source)
+        base_orders = [op for op in base_ops if op.variable == "orders"][0]
+        pr_orders = [op for op in pr_ops if op.variable == "orders"][0]
+        self.assertEqual(len(base_orders.caches), 1)
+        results = detect_cache_removed(_match(base_orders, pr_orders), "test.py")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].change_type, "cache_removed")
+
     def test_no_change_both_cached(self):
         """Cache in both branches."""
         source = '''\
