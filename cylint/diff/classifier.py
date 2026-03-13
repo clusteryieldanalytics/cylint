@@ -24,6 +24,7 @@ from cylint.tracker import (
     DataFrameTracker,
     is_dataframe_method_chain,
     is_spark_source,
+    unwrap_cache,
 )
 
 
@@ -206,15 +207,20 @@ def _handle_assign(node: ast.Assign, tracker: DataFrameTracker, ops: dict[str, T
             continue
         name = target.id
 
+        # Unwrap outer .cache()/.persist() to check for spark source
+        inner, has_cache_wrap = unwrap_cache(value)
+
         # Direct spark source
-        if is_spark_source(value):
+        if is_spark_source(inner):
             from cylint.tracker import ChainInfo
-            tracker.track(name, node.lineno, ChainInfo(source_line=node.lineno))
+            tracker.track(name, node.lineno, ChainInfo(source_line=node.lineno, has_cache=has_cache_wrap))
             op = _ensure_op(ops, name, node.lineno)
-            if isinstance(value, ast.Call):
-                op.source_table = _extract_source_table(value)
+            if isinstance(inner, ast.Call):
+                op.source_table = _extract_source_table(inner)
+            if has_cache_wrap:
+                op.caches.append(node.lineno)
             # Record operations in the chain (e.g. spark.table("x").filter(...))
-            _record_chain_ops(value, op)
+            _record_chain_ops(inner, op)
             continue
 
         # Simple alias: df2 = df
@@ -287,13 +293,16 @@ def _handle_ann_assign(node: ast.AnnAssign, tracker: DataFrameTracker, ops: dict
     name = node.target.id
     value = node.value
 
-    if is_spark_source(value):
+    inner, has_cache_wrap = unwrap_cache(value)
+    if is_spark_source(inner):
         from cylint.tracker import ChainInfo
-        tracker.track(name, node.lineno, ChainInfo(source_line=node.lineno))
+        tracker.track(name, node.lineno, ChainInfo(source_line=node.lineno, has_cache=has_cache_wrap))
         op = _ensure_op(ops, name, node.lineno)
-        if isinstance(value, ast.Call):
-            op.source_table = _extract_source_table(value)
-        _record_chain_ops(value, op)
+        if isinstance(inner, ast.Call):
+            op.source_table = _extract_source_table(inner)
+        if has_cache_wrap:
+            op.caches.append(node.lineno)
+        _record_chain_ops(inner, op)
     elif isinstance(value, ast.Name) and tracker.is_tracked(value.id):
         from cylint.tracker import ChainInfo
         parent_info = tracker.get_info(value.id)

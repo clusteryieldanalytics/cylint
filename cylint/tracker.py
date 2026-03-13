@@ -72,6 +72,19 @@ class DataFrameTracker:
             self.dataframes[name].use_count += 1
 
 
+def unwrap_cache(node: ast.expr) -> tuple[ast.expr, bool]:
+    """Unwrap outer .cache()/.persist() calls, returning (inner_node, had_cache).
+
+    Allows callers to detect patterns like spark.table("orders").cache()
+    where cache wraps a spark source expression.
+    """
+    if (isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ("cache", "persist")):
+        return node.func.value, True
+    return node, False
+
+
 def is_spark_source(node: ast.expr) -> bool:
     """Check if an expression is a known DataFrame source.
 
@@ -83,7 +96,10 @@ def is_spark_source(node: ast.expr) -> bool:
         spark.table("...")
         spark.createDataFrame(...)
         spark.range(...)
+
+    Also sees through wrapping .cache()/.persist() calls.
     """
+    node, _ = unwrap_cache(node)
     if isinstance(node, ast.Call):
         func = node.func
         # spark.sql(...), spark.table(...), spark.createDataFrame(...), spark.range(...)
