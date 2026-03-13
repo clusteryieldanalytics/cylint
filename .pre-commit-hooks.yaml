@@ -1,0 +1,6 @@
+- id: cylint
+  name: cylint
+  description: Lint PySpark files for performance anti-patterns
+  entry: cy lint
+  language: python
+  types: [python]
