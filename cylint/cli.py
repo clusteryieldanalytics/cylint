@@ -70,9 +70,54 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Include Databricks notebook cell maps in JSON output",
     )
-
     # cy rules
     rules_parser = subparsers.add_parser("rules", help="List available rules")
+
+    # cy ci
+    ci_parser = subparsers.add_parser("ci", help="CI enrichment flow")
+    ci_parser.add_argument(
+        "--paths",
+        nargs="+",
+        required=True,
+        help="Directories or files to lint",
+    )
+    ci_parser.add_argument(
+        "--base-ref",
+        default=None,
+        help="Git ref for base branch (enables change classification)",
+    )
+    ci_parser.add_argument(
+        "--api-key",
+        default=None,
+        help="Cluster Yield API key (enables server-side enrichment)",
+    )
+    ci_parser.add_argument(
+        "--environment",
+        default=None,
+        help="Snapshot environment name (required when --api-key is set)",
+    )
+    ci_parser.add_argument(
+        "--base-url",
+        default="https://api.clusteryield.app",
+        help="API base URL (default: https://api.clusteryield.app)",
+    )
+    ci_parser.add_argument(
+        "--format", "-f",
+        choices=["json", "github-comment"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    ci_parser.add_argument(
+        "--output", "-o",
+        default=None,
+        help="Write output to file (default: stdout)",
+    )
+    ci_parser.add_argument(
+        "--timeout",
+        type=int,
+        default=30,
+        help="Server timeout in seconds (default: 30)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -85,6 +130,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "lint":
         return _cmd_lint(args)
+
+    if args.command == "ci":
+        return _cmd_ci(args)
 
     return 0
 
@@ -130,6 +178,50 @@ def _cmd_lint(args: argparse.Namespace) -> int:
         print(text_fmt.format_result(result, use_color=use_color))
 
     return result.exit_code
+
+
+def _cmd_ci(args: argparse.Namespace) -> int:
+    """Execute the CI enrichment flow."""
+    import os
+
+    from cylint.ci import CIOrchestrator
+
+    # Allow API key from env var as fallback
+    api_key = args.api_key or os.environ.get("CLUSTER_YIELD_API_KEY")
+    environment = args.environment or os.environ.get("CLUSTER_YIELD_ENVIRONMENT")
+    base_url = args.base_url or os.environ.get("CLUSTER_YIELD_BASE_URL", "https://api.clusteryield.app")
+
+    if api_key and not environment:
+        print("Error: --environment is required when --api-key is set.", file=sys.stderr)
+        return 1
+
+    orchestrator = CIOrchestrator(
+        paths=args.paths,
+        base_ref=args.base_ref,
+        api_key=api_key,
+        environment=environment,
+        base_url=base_url,
+        timeout=args.timeout,
+    )
+
+    result = orchestrator.run()
+
+    # Format output
+    if args.format == "github-comment":
+        output = result.comment.markdown if result.comment else ""
+    else:
+        output = result.to_json()
+
+    # Write to file or stdout
+    if args.output:
+        Path(args.output).write_text(output, encoding="utf-8")
+    else:
+        print(output)
+
+    # Exit code based on findings
+    if result.stats.get("linterFindings", 0) > 0:
+        return 1
+    return 0
 
 
 def _cmd_rules() -> int:

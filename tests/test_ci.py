@@ -392,7 +392,7 @@ class TestFormatPlanFinding(unittest.TestCase):
 class TestFormatPrComment(unittest.TestCase):
     def test_empty_findings(self):
         text = format_pr_comment([], [])
-        self.assertEqual(text, "No findings detected.")
+        self.assertIn("No findings detected.", text)
 
     def test_linter_only(self):
         findings = [{

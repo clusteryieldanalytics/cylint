@@ -1,11 +1,17 @@
-"""Enrich request assembly and response processing.
+"""Enrich request assembly, HTTP client, and response processing.
 
 Converts linter findings and changed lines into the request shape expected
-by the server's ``/enrich`` endpoint, and resolves provenance in the
-server response back to absolute line numbers.
+by the server's ``/enrich`` endpoint, posts the request, and resolves
+provenance in the server response back to absolute line numbers.
 """
 
 from __future__ import annotations
+
+import json
+import sys
+import urllib.error
+import urllib.request
+from dataclasses import dataclass, field
 
 from cylint.ci.cell_map import (
     absolute_to_cell,
@@ -14,6 +20,32 @@ from cylint.ci.cell_map import (
     is_databricks_notebook,
 )
 from cylint.models import Finding
+
+
+# ---------------------------------------------------------------------------
+# Data models
+# ---------------------------------------------------------------------------
+
+ENRICH_ENDPOINT = "/api/v1/environments/{env}/enrich"
+DEFAULT_TIMEOUT = 30
+
+
+@dataclass
+class EnrichRequest:
+    """Payload for the /enrich endpoint."""
+    files: list[dict] = field(default_factory=list)
+    linter_findings: list[dict] = field(default_factory=list)
+    change_types: list[dict] = field(default_factory=list)
+    environment: str = ""
+
+
+@dataclass
+class EnrichResponse:
+    """Parsed response from the /enrich endpoint."""
+    findings: list[dict] = field(default_factory=list)
+    plan_findings: list[dict] = field(default_factory=list)
+    change_findings: list[dict] = field(default_factory=list)
+    match_stats: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -134,3 +166,54 @@ def resolve_provenance(
         "constructionSpanStart": span_start,
         "constructionSpanEnd": span_end,
     }
+
+
+# ---------------------------------------------------------------------------
+# HTTP client
+# ---------------------------------------------------------------------------
+
+def post_enrich(
+    request: EnrichRequest,
+    api_key: str,
+    base_url: str = "https://api.clusteryield.app",
+    timeout: int = DEFAULT_TIMEOUT,
+) -> EnrichResponse | None:
+    """POST to the /enrich endpoint. Returns None on failure (non-blocking).
+
+    Enrichment failure should not block the CI pipeline. The orchestrator
+    falls back to unenriched findings + change classifications.
+    """
+    url = f"{base_url}{ENRICH_ENDPOINT.format(env=request.environment)}"
+    payload: dict = {
+        "files": request.files,
+        "linterFindings": request.linter_findings,
+    }
+    if request.change_types:
+        payload["changeTypes"] = request.change_types
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read())
+            return EnrichResponse(
+                findings=data.get("findings", []),
+                plan_findings=data.get("planFindings", []),
+                change_findings=data.get("changeFindings", []),
+                match_stats=data.get("matchStats", {}),
+            )
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
+        print(
+            f"Warning: enrichment failed ({e}). Showing unenriched findings.",
+            file=sys.stderr,
+        )
+        return None
