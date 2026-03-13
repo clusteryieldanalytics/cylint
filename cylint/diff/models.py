@@ -29,6 +29,21 @@ class JoinOp:
 
 
 @dataclass
+class GroupByOp:
+    """A recorded .groupBy() call."""
+    line: int
+    key_expr_hash: str = ""          # hash of the groupBy key arguments AST subtree
+
+
+@dataclass
+class UdfOp:
+    """A UDF call on a DataFrame's lineage."""
+    line: int
+    context: str = "other"           # "filter", "withColumn", "select", or "other"
+    name: str | None = None          # UDF function name if resolvable, None for inline/lambda
+
+
+@dataclass
 class WriteOp:
     """A recorded .write.*() call."""
     line: int
@@ -46,8 +61,9 @@ class TrackedOperation:
     selects: list[SelectOp] = field(default_factory=list)
     joins: list[JoinOp] = field(default_factory=list)
     broadcasts: list[int] = field(default_factory=list)   # line numbers of F.broadcast()
-    groupbys: list[int] = field(default_factory=list)
+    groupbys: list[GroupByOp] = field(default_factory=list)
     caches: list[int] = field(default_factory=list)
+    udfs: list[UdfOp] = field(default_factory=list)
     writes: list[WriteOp] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -59,8 +75,9 @@ class TrackedOperation:
             "selects": [{"line": s.line, "colCount": s.col_count, "colNames": s.col_names} for s in self.selects],
             "joins": [{"line": j.line, "rightTable": j.right_table, "keyExprHash": j.key_expr_hash} for j in self.joins],
             "broadcasts": self.broadcasts,
-            "groupbys": self.groupbys,
+            "groupbys": [{"line": g.line, "keyExprHash": g.key_expr_hash} for g in self.groupbys],
             "caches": self.caches,
+            "udfs": [{"line": u.line, "context": u.context, "name": u.name} for u in self.udfs],
             "writes": [{"line": w.line, "format": w.format, "target": w.target} for w in self.writes],
         }
 
