@@ -256,35 +256,5 @@ class TestEnrichRequestChangeTypes(unittest.TestCase):
             server.shutdown()
 
 
-class TestExportDiffValidation(unittest.TestCase):
-    """Fix #5 & #7: --export-diff validation and auto-imply json."""
-
-    def test_export_diff_without_base_ref_errors(self):
-        from cylint.cli import main
-        rc = main(["lint", "--export-diff", "."])
-        self.assertEqual(rc, 1)
-
-    def test_export_diff_with_github_format_errors(self):
-        from cylint.cli import main
-        rc = main(["lint", "--export-diff", "--base-ref", "HEAD~1", "--format", "github", "."])
-        self.assertEqual(rc, 1)
-
-    def test_export_diff_implies_json(self):
-        """--export-diff with default text format should auto-switch to json."""
-        import argparse
-        # Simulate what happens: format defaults to "text", --export-diff sets it to "json"
-        args = argparse.Namespace(
-            export_diff=True,
-            base_ref="HEAD~1",
-            format="text",
-        )
-        # After validation, format should be json
-        if args.export_diff:
-            if args.format not in ("json", "text"):
-                pass  # would error
-            args.format = "json"
-        self.assertEqual(args.format, "json")
-
-
 if __name__ == "__main__":
     unittest.main()

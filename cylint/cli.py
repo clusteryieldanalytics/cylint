@@ -70,18 +70,6 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Include Databricks notebook cell maps in JSON output",
     )
-    lint_parser.add_argument(
-        "--export-diff",
-        action="store_true",
-        help="Enable change classification. Requires --base-ref.",
-    )
-    lint_parser.add_argument(
-        "--base-ref",
-        type=str,
-        default=None,
-        help="Git ref for base branch (e.g., origin/main, HEAD~1, a commit SHA).",
-    )
-
     # cy rules
     rules_parser = subparsers.add_parser("rules", help="List available rules")
 
@@ -177,35 +165,13 @@ def _cmd_lint(args: argparse.Namespace) -> int:
         min_severity=min_severity,
     )
 
-    # Validate --export-diff flags before doing any work
-    if args.export_diff:
-        if not args.base_ref:
-            print("Error: --export-diff requires --base-ref to specify the base branch git ref", file=sys.stderr)
-            return 1
-        if args.format not in ("json", "text"):
-            # Explicit non-json format like "github" — error
-            print("Error: --export-diff requires --format json", file=sys.stderr)
-            return 1
-        # --export-diff implies --format json
-        args.format = "json"
-
     result = engine.lint_paths(args.paths, exclude=exclude)
 
     # Format output
     use_color = not args.no_color and sys.stdout.isatty()
 
     if args.format == "json":
-        output = json_fmt.format_result(result, export_cells=args.export_cells)
-        # Inject changeClassifications if --export-diff
-        if args.export_diff:
-            import json as json_mod
-            from cylint.diff import DiffClassifier
-            classifier = DiffClassifier(base_ref=args.base_ref)
-            classifications = classifier.classify_all(args.paths)
-            data = json_mod.loads(output)
-            data["changeClassifications"] = [c.to_dict() for c in classifications]
-            output = json_mod.dumps(data, indent=2)
-        print(output)
+        print(json_fmt.format_result(result, export_cells=args.export_cells))
     elif args.format == "github":
         print(github_fmt.format_result(result))
     else:
