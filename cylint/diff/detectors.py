@@ -168,8 +168,125 @@ def detect_projection_changed(match: OperationMatch, file: str) -> list[ChangeCl
     return results
 
 
+def detect_join_key_changed(match: OperationMatch, file: str) -> list[ChangeClassification]:
+    """Fires when a join key expression changed between branches."""
+    base_joins = sorted(match.base_op.joins, key=lambda j: j.line)
+    pr_joins = sorted(match.pr_op.joins, key=lambda j: j.line)
+
+    results = []
+    if len(base_joins) == len(pr_joins):
+        for bj, pj in zip(base_joins, pr_joins):
+            if bj.key_expr_hash != pj.key_expr_hash:
+                results.append(ChangeClassification(
+                    file=file,
+                    line=pj.line,
+                    change_type="join_key_changed",
+                    confidence=match.confidence,
+                    source_table=match.pr_op.source_table or match.base_op.source_table,
+                    scope=".join()",
+                    metadata={},
+                ))
+    return results
+
+
+def detect_aggregation_changed(match: OperationMatch, file: str) -> list[ChangeClassification]:
+    """Fires when a groupBy key expression changed between branches."""
+    base_gbs = sorted(match.base_op.groupbys, key=lambda g: g.line)
+    pr_gbs = sorted(match.pr_op.groupbys, key=lambda g: g.line)
+
+    results = []
+    if len(base_gbs) == len(pr_gbs):
+        for bg, pg in zip(base_gbs, pr_gbs):
+            if bg.key_expr_hash != pg.key_expr_hash:
+                results.append(ChangeClassification(
+                    file=file,
+                    line=pg.line,
+                    change_type="aggregation_changed",
+                    confidence=match.confidence,
+                    source_table=match.pr_op.source_table or match.base_op.source_table,
+                    scope=".groupBy()",
+                    metadata={},
+                ))
+    return results
+
+
+def detect_cache_added(match: OperationMatch, file: str) -> list[ChangeClassification]:
+    """Fires when a cache/persist appears in PR but not in base."""
+    if len(match.base_op.caches) == 0 and len(match.pr_op.caches) > 0:
+        return [ChangeClassification(
+            file=file,
+            line=match.pr_op.caches[0],
+            change_type="cache_added",
+            confidence=match.confidence,
+            source_table=match.pr_op.source_table or match.base_op.source_table,
+            scope=".cache()",
+            metadata={},
+        )]
+    return []
+
+
+def detect_cache_removed(match: OperationMatch, file: str) -> list[ChangeClassification]:
+    """Fires when a cache/persist existed in base but is absent in PR."""
+    if len(match.base_op.caches) > 0 and len(match.pr_op.caches) == 0:
+        return [ChangeClassification(
+            file=file,
+            line=match.base_op.caches[0],
+            change_type="cache_removed",
+            confidence=match.confidence,
+            source_table=match.base_op.source_table,
+            scope=".cache()",
+            metadata={},
+        )]
+    return []
+
+
+def detect_udf_added(match: OperationMatch, file: str) -> list[ChangeClassification]:
+    """Fires when a UDF appears in PR lineage that wasn't in base."""
+    base_udf_set = {(u.context, u.name) for u in match.base_op.udfs}
+    pr_udf_set = {(u.context, u.name) for u in match.pr_op.udfs}
+
+    added = pr_udf_set - base_udf_set
+    results = []
+    for u in match.pr_op.udfs:
+        if (u.context, u.name) in added:
+            results.append(ChangeClassification(
+                file=file,
+                line=u.line,
+                change_type="udf_added",
+                confidence=match.confidence,
+                source_table=match.pr_op.source_table or match.base_op.source_table,
+                scope=f"UDF in .{u.context}()" if u.context != "other" else "UDF",
+                metadata={"udfContext": u.context},
+            ))
+            added.discard((u.context, u.name))
+    return results
+
+
+def detect_udf_removed(match: OperationMatch, file: str) -> list[ChangeClassification]:
+    """Fires when a UDF in base lineage is absent in PR."""
+    base_udf_set = {(u.context, u.name) for u in match.base_op.udfs}
+    pr_udf_set = {(u.context, u.name) for u in match.pr_op.udfs}
+
+    removed = base_udf_set - pr_udf_set
+    results = []
+    for u in match.base_op.udfs:
+        if (u.context, u.name) in removed:
+            results.append(ChangeClassification(
+                file=file,
+                line=u.line,
+                change_type="udf_removed",
+                confidence=match.confidence,
+                source_table=match.base_op.source_table,
+                scope=f"UDF in .{u.context}()" if u.context != "other" else "UDF",
+                metadata={"udfContext": u.context},
+            ))
+            removed.discard((u.context, u.name))
+    return results
+
+
 # All detectors run on every match
 DETECTORS = [
+    # Core 7
     detect_filter_removed,
     detect_filter_modified,
     detect_filter_added,
@@ -177,6 +294,13 @@ DETECTORS = [
     detect_broadcast_hint_removed,
     detect_broadcast_hint_added,
     detect_projection_changed,
+    # Extended 6
+    detect_join_key_changed,
+    detect_aggregation_changed,
+    detect_cache_added,
+    detect_cache_removed,
+    detect_udf_added,
+    detect_udf_removed,
 ]
 
 

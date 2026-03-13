@@ -1,4 +1,4 @@
-"""Tests for detectors.py — all 7 change type detectors."""
+"""Tests for detectors.py — core 7 change type detectors."""
 
 import unittest
 

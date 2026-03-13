@@ -6,16 +6,18 @@ import ast
 import sys
 from pathlib import Path
 
-from cylint.diff.ast_hash import hash_ast_subtree
+from cylint.diff.ast_hash import hash_ast_args, hash_ast_subtree
 from cylint.diff.detectors import classify_changes
 from cylint.diff.git_utils import ChangedFile, get_base_source, get_changed_files
 from cylint.diff.matchers import match_operations
 from cylint.diff.models import (
     ChangeClassification,
     FilterOp,
+    GroupByOp,
     JoinOp,
     SelectOp,
     TrackedOperation,
+    UdfOp,
     WriteOp,
 )
 from cylint.tracker import (
@@ -124,6 +126,10 @@ def extract_operations(source: str) -> list[TrackedOperation]:
     ops: dict[str, TrackedOperation] = {}
 
     _walk(tree, tracker, ops)
+    # Second pass: detect UDF usage on tracked DataFrames
+    udf_names = _collect_udf_names(tree)
+    if udf_names:
+        _record_udf_usage(tree, tracker, ops, udf_names)
     return list(ops.values())
 
 
@@ -151,6 +157,7 @@ def _inherit_ops(target: TrackedOperation, parent: TrackedOperation):
     target.broadcasts.extend(parent.broadcasts)
     target.groupbys.extend(parent.groupbys)
     target.caches.extend(parent.caches)
+    target.udfs.extend(parent.udfs)
     target.writes.extend(parent.writes)
 
 
@@ -264,6 +271,13 @@ def _handle_assign(node: ast.Assign, tracker: DataFrameTracker, ops: dict[str, T
                     if root_name in ops:
                         _inherit_ops(op, ops[root_name])
                     op.caches.append(node.lineno)
+                    continue
+
+        # Fallback: unrecognized chain ending in a terminal method (e.g. count(),
+        # collect()). Still record intermediate ops on the root DataFrame.
+        root_name = _find_root_name_for_call(value, tracker)
+        if root_name and root_name in ops:
+            _record_chain_ops(value, ops[root_name])
 
 
 def _handle_ann_assign(node: ast.AnnAssign, tracker: DataFrameTracker, ops: dict[str, TrackedOperation]):
@@ -386,16 +400,19 @@ def _record_chain_ops(node: ast.AST, op: TrackedOperation):
 
             elif attr == "join":
                 key_hash = ""
-                # Join key is typically the 2nd argument
+                # Join key is typically the 2nd argument — use order-independent hash
                 if len(node.args) >= 2:
-                    key_hash = hash_ast_subtree(node.args[1])
+                    key_arg = node.args[1]
+                    # If key is a single expression, wrap in list for hash_ast_args
+                    key_hash = hash_ast_args([key_arg])
                 op.joins.append(JoinOp(line=lineno, key_expr_hash=key_hash))
                 # Check for F.broadcast() in join arguments
                 for arg in node.args:
                     _check_broadcast(arg, op, lineno)
 
             elif attr == "groupBy" or attr == "groupby":
-                op.groupbys.append(lineno)
+                key_hash = hash_ast_args(node.args) if node.args else ""
+                op.groupbys.append(GroupByOp(line=lineno, key_expr_hash=key_hash))
 
             elif attr in ("cache", "persist"):
                 op.caches.append(lineno)
@@ -444,3 +461,140 @@ def _extract_col_names(args: list[ast.expr]) -> list[str] | None:
         else:
             return None  # non-literal — can't determine statically
     return names if names else None
+
+
+# ---------------------------------------------------------------------------
+# UDF tracking — second-pass detection of UDF usage on tracked DataFrames
+# ---------------------------------------------------------------------------
+
+def _collect_udf_names(tree: ast.Module) -> set[str]:
+    """Walk the AST to find all variable/function names registered as UDFs."""
+    udf_names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and isinstance(node.value, ast.Call):
+                    func = node.value.func
+                    if isinstance(func, ast.Name) and func.id in ("udf", "pandas_udf"):
+                        udf_names.add(target.id)
+                    elif isinstance(func, ast.Attribute) and func.attr in ("udf", "pandas_udf"):
+                        udf_names.add(target.id)
+        if isinstance(node, ast.FunctionDef):
+            for dec in node.decorator_list:
+                if isinstance(dec, ast.Name) and dec.id in ("udf", "pandas_udf"):
+                    udf_names.add(node.name)
+                elif isinstance(dec, ast.Attribute) and dec.attr in ("udf", "pandas_udf"):
+                    udf_names.add(node.name)
+                elif isinstance(dec, ast.Call):
+                    inner = dec.func
+                    if isinstance(inner, ast.Name) and inner.id in ("udf", "pandas_udf"):
+                        udf_names.add(node.name)
+                    elif isinstance(inner, ast.Attribute) and inner.attr in ("udf", "pandas_udf"):
+                        udf_names.add(node.name)
+    return udf_names
+
+
+def _is_udf_call(node: ast.expr, udf_names: set[str]) -> bool:
+    """True if node is a UDF invocation."""
+    if isinstance(node, ast.Lambda):
+        return True
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    if isinstance(func, ast.Call):
+        inner = func.func
+        if isinstance(inner, ast.Name) and inner.id in ("udf", "pandas_udf"):
+            return True
+        if isinstance(inner, ast.Attribute) and inner.attr in ("udf", "pandas_udf"):
+            return True
+    if isinstance(func, ast.Name) and func.id in udf_names:
+        return True
+    return False
+
+
+def _resolve_udf_name(node: ast.Call, udf_names: set[str]) -> str | None:
+    """Extract the UDF function name if it's a named variable."""
+    func = node.func
+    if isinstance(func, ast.Name) and func.id in udf_names:
+        return func.id
+    return None
+
+
+def _record_udf_usage(
+    tree: ast.Module,
+    tracker: DataFrameTracker,
+    ops: dict[str, TrackedOperation],
+    udf_names: set[str],
+):
+    """Walk the AST to find UDF calls on tracked DataFrames and record them.
+
+    Records UDFs on the assignment target variable (if the call is part of
+    an assignment) or the root DataFrame (for standalone expressions).
+    """
+    # Build a map from call node id → assignment target name
+    assign_targets: dict[int, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and isinstance(node.value, ast.Call):
+                    # Walk the entire chain to tag all Call nodes in it
+                    _tag_calls_with_target(node.value, target.id, assign_targets)
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and isinstance(node.value, ast.Call):
+                _tag_calls_with_target(node.value, node.target.id, assign_targets)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute):
+            continue
+
+        attr = func.attr
+        context = None
+        args_to_check: list[ast.expr] = []
+
+        if attr in ("filter", "where"):
+            context = "filter"
+            args_to_check = list(node.args)
+        elif attr == "withColumn":
+            context = "withColumn"
+            if len(node.args) >= 2:
+                args_to_check = [node.args[1]]
+        elif attr == "select":
+            context = "select"
+            args_to_check = list(node.args)
+        else:
+            continue
+
+        if not args_to_check:
+            continue
+
+        root = _find_root_name_for_call(node, tracker)
+        if root is None or root not in ops:
+            continue
+
+        for arg in args_to_check:
+            if _is_udf_call(arg, udf_names):
+                udf_name = _resolve_udf_name(arg, udf_names) if isinstance(arg, ast.Call) else None
+                udf_op = UdfOp(
+                    line=getattr(node, "lineno", 0),
+                    context=context,
+                    name=udf_name,
+                )
+                # Record on assignment target if available, else root
+                target_name = assign_targets.get(id(node))
+                if target_name and target_name in ops:
+                    ops[target_name].udfs.append(udf_op)
+                else:
+                    ops[root].udfs.append(udf_op)
+
+
+def _tag_calls_with_target(node: ast.AST, target: str, mapping: dict[int, str]):
+    """Tag all Call nodes in a method chain with the assignment target name."""
+    if isinstance(node, ast.Call):
+        mapping[id(node)] = target
+        if isinstance(node.func, ast.Attribute):
+            _tag_calls_with_target(node.func.value, target, mapping)
+    elif isinstance(node, ast.Attribute):
+        _tag_calls_with_target(node.value, target, mapping)
