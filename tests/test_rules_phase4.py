@@ -147,6 +147,18 @@ df = (spark.read
             "CY018",
         )
 
+    def test_schema_kwarg_csv_no_fire(self):
+        src = 'df = spark.read.csv("path", schema="nr integer,lang string")'
+        self.assert_no_findings(src, "CY018")
+
+    def test_schema_kwarg_json_no_fire(self):
+        src = 'df = spark.read.json("path", schema=my_schema)'
+        self.assert_no_findings(src, "CY018")
+
+    def test_schema_kwarg_load_no_fire(self):
+        src = 'df = spark.read.format("csv").load("path", schema=s)'
+        self.assert_no_findings(src, "CY018")
+
 
 # ---------------------------------------------------------------------------
 # CY020 — .count() emptiness check

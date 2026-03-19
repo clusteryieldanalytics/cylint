@@ -65,8 +65,16 @@ def _resolve_format(methods: list[tuple[str, ast.Call]]) -> str | None:
 
 
 def _has_schema_call(methods: list[tuple[str, ast.Call]]) -> bool:
-    """Check if .schema() is present in the chain."""
-    return any(m == "schema" for m, _ in methods)
+    """Check if .schema() is present in the chain or schema= is a keyword arg."""
+    for method_name, call_node in methods:
+        if method_name == "schema":
+            return True
+        # Check for schema= keyword argument on terminal read calls (e.g. .csv(schema=...))
+        if method_name in INFERENCE_FORMATS | {"load"}:
+            for kw in call_node.keywords:
+                if kw.arg == "schema":
+                    return True
+    return False
 
 
 def _has_infer_schema_false(methods: list[tuple[str, ast.Call]]) -> bool:
