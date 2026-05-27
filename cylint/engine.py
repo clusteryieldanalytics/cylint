@@ -45,6 +45,7 @@ import cylint.rules.rdd_collect                  # noqa: F401
 import cylint.rules.union_by_name                # noqa: F401
 import cylint.rules.insert_into                  # noqa: F401
 import cylint.rules.functions_alias               # noqa: F401
+import cylint.rules.explode_filter_order          # noqa: F401
 
 from cylint.rules import get_all_rules
 

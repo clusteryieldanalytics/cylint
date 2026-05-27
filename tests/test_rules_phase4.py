@@ -918,5 +918,67 @@ class TestCY037FunctionsAlias(RuleTestBase):
         )
 
 
+# ---------------------------------------------------------------------------
+# CY038 — explode-before-filter
+# ---------------------------------------------------------------------------
+
+class TestCY038ExplodeBeforeFilter(RuleTestBase):
+    """CY038: .explode() before .filter() in a chain."""
+
+    def test_explode_then_filter_fires(self):
+        src = '''\
+df = spark.table("orders")
+result = df.explode("items").filter(df.id > 0)
+'''
+        self.assert_rule_found(src, "CY038")
+
+    def test_explode_then_where_fires(self):
+        src = '''\
+df = spark.table("orders")
+result = df.explode("items").where("id > 0")
+'''
+        self.assert_rule_found(src, "CY038")
+
+    def test_explode_then_filter_in_longer_chain_fires(self):
+        src = '''\
+df = spark.table("orders")
+result = df.withColumn("x", df.id).explode("items").filter(df.id > 0).select("id")
+'''
+        self.assert_rule_found(src, "CY038")
+
+    def test_filter_then_explode_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+result = df.filter(df.id > 0).explode("items")
+'''
+        self.assert_no_findings(src, "CY038")
+
+    def test_explode_alone_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+result = df.explode("items")
+'''
+        self.assert_no_findings(src, "CY038")
+
+    def test_filter_alone_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+result = df.filter(df.id > 0)
+'''
+        self.assert_no_findings(src, "CY038")
+
+    def test_untracked_df_no_finding(self):
+        src = 'result = some_list.explode("x").filter(lambda x: x)'
+        self.assert_no_findings(src, "CY038")
+
+    def test_only_one_finding_per_chain(self):
+        """A chain with explode -> filter -> filter should produce one finding."""
+        src = '''\
+df = spark.table("orders")
+result = df.explode("items").filter(df.id > 0).filter(df.val > 1)
+'''
+        self.assert_rule_found(src, "CY038", count=1)
+
+
 if __name__ == "__main__":
     unittest.main()

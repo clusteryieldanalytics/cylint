@@ -69,6 +69,7 @@ Found 3 issues (1 critical, 2 warnings) in 1 file.
 | [CY035](https://clusteryield.app/analysis-reference.html#CY035) | warning | `.union()`/`.unionAll()` — use `.unionByName()` to avoid silent column misalignment |
 | [CY036](https://clusteryield.app/analysis-reference.html#CY036) | warning | `df.write.insertInto()` — use `df.writeTo().append()` / `.overwritePartitions()` |
 | [CY037](https://clusteryield.app/analysis-reference.html#CY037) | info | `from pyspark.sql import functions` without `as F` — community standard alias missing |
+| [CY038](https://clusteryield.app/analysis-reference.html#CY038) | warning | `.explode()` before `.filter()` — filter first to reduce rows before exploding |
 
 List all rules:
 
