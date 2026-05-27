@@ -61,6 +61,7 @@ Found 3 issues (1 critical, 2 warnings) in 1 file.
 | [CY017](https://clusteryield.app/analysis-reference.html#CY017) | warning | `Window.orderBy()` without `.partitionBy()` — full-table sort into one partition |
 | [CY018](https://clusteryield.app/analysis-reference.html#CY018) | warning | `spark.read.csv()`/`.json()` without explicit schema — double file scan |
 | [CY020](https://clusteryield.app/analysis-reference.html#CY020) | warning | `.count() == 0` for emptiness check — full scan wasted |
+| [CY021](https://clusteryield.app/analysis-reference.html#CY021) | warning | `.count()` used only for logging/display or as a bare statement — full scan wasted |
 | [CY025](https://clusteryield.app/analysis-reference.html#CY025) | warning | `.cache()`/`.persist()` without `.unpersist()` — memory leak |
 | [CY031](https://clusteryield.app/analysis-reference.html#CY031) | warning | `for row in df.collect()` — driver-side row iteration defeats Spark |
 
