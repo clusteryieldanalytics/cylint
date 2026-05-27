@@ -774,5 +774,50 @@ pdf = df.toPandas()
         self.assert_no_findings(src, "CY034")
 
 
+# ---------------------------------------------------------------------------
+# CY035 — union-column-order
+# ---------------------------------------------------------------------------
+
+class TestCY035UnionByName(RuleTestBase):
+    """CY035: .union() / .unionAll() should be .unionByName()."""
+
+    def test_union_on_tracked_df_fires(self):
+        src = '''\
+df1 = spark.table("orders")
+df2 = spark.table("orders_archive")
+result = df1.union(df2)
+'''
+        self.assert_rule_found(src, "CY035")
+
+    def test_union_all_on_tracked_df_fires(self):
+        src = '''\
+df1 = spark.table("orders")
+df2 = spark.table("orders_archive")
+result = df1.unionAll(df2)
+'''
+        self.assert_rule_found(src, "CY035")
+
+    def test_union_by_name_no_finding(self):
+        src = '''\
+df1 = spark.table("orders")
+df2 = spark.table("orders_archive")
+result = df1.unionByName(df2)
+'''
+        self.assert_no_findings(src, "CY035")
+
+    def test_untracked_union_no_finding(self):
+        """Python set.union() should not be flagged."""
+        src = 'result = set_a.union(set_b)'
+        self.assert_no_findings(src, "CY035")
+
+    def test_union_in_chain_fires(self):
+        src = '''\
+df1 = spark.table("orders")
+df2 = spark.table("orders_archive")
+result = df1.filter(df1.id > 0).union(df2)
+'''
+        self.assert_rule_found(src, "CY035")
+
+
 if __name__ == "__main__":
     unittest.main()

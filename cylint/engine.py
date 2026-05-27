@@ -42,6 +42,7 @@ import cylint.rules.collect_iteration  # noqa: F401
 import cylint.rules.drop_select         # noqa: F401
 import cylint.rules.array_distinct_collect_list  # noqa: F401
 import cylint.rules.rdd_collect                  # noqa: F401
+import cylint.rules.union_by_name                # noqa: F401
 
 from cylint.rules import get_all_rules
 
