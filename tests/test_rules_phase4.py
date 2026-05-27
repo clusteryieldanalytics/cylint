@@ -733,5 +733,46 @@ class TestCY033CollectListDedup(RuleTestBase):
         )
 
 
+# ---------------------------------------------------------------------------
+# CY034 — rdd-collect
+# ---------------------------------------------------------------------------
+
+class TestCY034RddCollect(RuleTestBase):
+    """CY034: df.rdd.collect() should be replaced with .toPandas()."""
+
+    def test_rdd_collect_on_tracked_df_fires(self):
+        src = '''\
+df = spark.table("orders")
+rows = df.rdd.collect()
+'''
+        self.assert_rule_found(src, "CY034")
+
+    def test_rdd_collect_on_chained_df_fires(self):
+        src = '''\
+df = spark.table("orders")
+rows = df.filter(df.id > 0).rdd.collect()
+'''
+        self.assert_rule_found(src, "CY034")
+
+    def test_df_collect_without_rdd_no_finding(self):
+        """Plain .collect() is handled by CY001, not CY034."""
+        src = '''\
+df = spark.table("orders")
+rows = df.limit(10).collect()
+'''
+        self.assert_no_findings(src, "CY034")
+
+    def test_rdd_collect_on_untracked_no_finding(self):
+        src = 'rows = some_rdd.collect()'
+        self.assert_no_findings(src, "CY034")
+
+    def test_topandas_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+pdf = df.toPandas()
+'''
+        self.assert_no_findings(src, "CY034")
+
+
 if __name__ == "__main__":
     unittest.main()

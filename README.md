@@ -65,6 +65,7 @@ Found 3 issues (1 critical, 2 warnings) in 1 file.
 | [CY031](https://clusteryield.app/analysis-reference.html#CY031) | warning | `for row in df.collect()` — driver-side row iteration defeats Spark |
 | [CY032](https://clusteryield.app/analysis-reference.html#CY032) | info | `.drop()` before `.select()` — drop is redundant when select already picks columns |
 | [CY033](https://clusteryield.app/analysis-reference.html#CY033) | warning | `array_distinct(collect_list(x))` — use `collect_set(x)` for single-step dedup |
+| [CY034](https://clusteryield.app/analysis-reference.html#CY034) | warning | `df.rdd.collect()` — use `.toPandas()` with Arrow for faster driver collection |
 
 List all rules:
 
