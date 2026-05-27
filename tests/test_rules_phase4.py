@@ -689,5 +689,49 @@ result = df.select("id", "name").drop("id")
         self.assert_no_findings(src, "CY032")
 
 
+# ---------------------------------------------------------------------------
+# CY033 — collect-list-dedup
+# ---------------------------------------------------------------------------
+
+class TestCY033CollectListDedup(RuleTestBase):
+    """CY033: array_distinct(collect_list(x)) should be collect_set(x)."""
+
+    def test_bare_functions_fire(self):
+        self.assert_rule_found(
+            'result = df.agg(array_distinct(collect_list("col")))',
+            "CY033",
+        )
+
+    def test_module_prefix_fire(self):
+        self.assert_rule_found(
+            'result = df.agg(F.array_distinct(F.collect_list("col")))',
+            "CY033",
+        )
+
+    def test_mixed_prefix_fire(self):
+        self.assert_rule_found(
+            'result = df.agg(array_distinct(F.collect_list("col")))',
+            "CY033",
+        )
+
+    def test_collect_set_no_finding(self):
+        self.assert_no_findings(
+            'result = df.agg(collect_set("col"))',
+            "CY033",
+        )
+
+    def test_array_distinct_non_collect_list_no_finding(self):
+        self.assert_no_findings(
+            'result = array_distinct(some_array)',
+            "CY033",
+        )
+
+    def test_collect_list_alone_no_finding(self):
+        self.assert_no_findings(
+            'result = df.agg(collect_list("col"))',
+            "CY033",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
