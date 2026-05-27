@@ -640,5 +640,345 @@ names = [r["name"] for r in rows]
         self.assert_rule_found(src, "CY031")
 
 
+# ---------------------------------------------------------------------------
+# CY032 — drop-before-select
+# ---------------------------------------------------------------------------
+
+class TestCY032DropSelect(RuleTestBase):
+    """CY032: .drop() followed by .select() is redundant."""
+
+    def test_drop_then_select_fires(self):
+        src = '''\
+df = spark.table("orders")
+result = df.drop("tmp").select("id", "name")
+'''
+        self.assert_rule_found(src, "CY032")
+
+    def test_drop_then_select_chained_fires(self):
+        src = '''\
+df = spark.table("orders")
+result = df.filter(df.id > 0).drop("tmp").select("id", "name")
+'''
+        self.assert_rule_found(src, "CY032")
+
+    def test_drop_alone_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+result = df.drop("tmp")
+'''
+        self.assert_no_findings(src, "CY032")
+
+    def test_select_alone_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+result = df.select("id", "name")
+'''
+        self.assert_no_findings(src, "CY032")
+
+    def test_untracked_df_no_finding(self):
+        src = '''\
+result = some_list.drop(0).select("x")
+'''
+        self.assert_no_findings(src, "CY032")
+
+    def test_select_before_drop_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+result = df.select("id", "name").drop("id")
+'''
+        self.assert_no_findings(src, "CY032")
+
+
+# ---------------------------------------------------------------------------
+# CY033 — collect-list-dedup
+# ---------------------------------------------------------------------------
+
+class TestCY033CollectListDedup(RuleTestBase):
+    """CY033: array_distinct(collect_list(x)) should be collect_set(x)."""
+
+    def test_bare_functions_fire(self):
+        self.assert_rule_found(
+            'result = df.agg(array_distinct(collect_list("col")))',
+            "CY033",
+        )
+
+    def test_module_prefix_fire(self):
+        self.assert_rule_found(
+            'result = df.agg(F.array_distinct(F.collect_list("col")))',
+            "CY033",
+        )
+
+    def test_mixed_prefix_fire(self):
+        self.assert_rule_found(
+            'result = df.agg(array_distinct(F.collect_list("col")))',
+            "CY033",
+        )
+
+    def test_collect_set_no_finding(self):
+        self.assert_no_findings(
+            'result = df.agg(collect_set("col"))',
+            "CY033",
+        )
+
+    def test_array_distinct_non_collect_list_no_finding(self):
+        self.assert_no_findings(
+            'result = array_distinct(some_array)',
+            "CY033",
+        )
+
+    def test_collect_list_alone_no_finding(self):
+        self.assert_no_findings(
+            'result = df.agg(collect_list("col"))',
+            "CY033",
+        )
+
+
+# ---------------------------------------------------------------------------
+# CY034 — rdd-collect
+# ---------------------------------------------------------------------------
+
+class TestCY034RddCollect(RuleTestBase):
+    """CY034: df.rdd.collect() should be replaced with .toPandas()."""
+
+    def test_rdd_collect_on_tracked_df_fires(self):
+        src = '''\
+df = spark.table("orders")
+rows = df.rdd.collect()
+'''
+        self.assert_rule_found(src, "CY034")
+
+    def test_rdd_collect_on_chained_df_fires(self):
+        src = '''\
+df = spark.table("orders")
+rows = df.filter(df.id > 0).rdd.collect()
+'''
+        self.assert_rule_found(src, "CY034")
+
+    def test_df_collect_without_rdd_no_finding(self):
+        """Plain .collect() is handled by CY001, not CY034."""
+        src = '''\
+df = spark.table("orders")
+rows = df.limit(10).collect()
+'''
+        self.assert_no_findings(src, "CY034")
+
+    def test_rdd_collect_on_untracked_no_finding(self):
+        src = 'rows = some_rdd.collect()'
+        self.assert_no_findings(src, "CY034")
+
+    def test_topandas_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+pdf = df.toPandas()
+'''
+        self.assert_no_findings(src, "CY034")
+
+
+# ---------------------------------------------------------------------------
+# CY035 — union-column-order
+# ---------------------------------------------------------------------------
+
+class TestCY035UnionByName(RuleTestBase):
+    """CY035: .union() / .unionAll() should be .unionByName()."""
+
+    def test_union_on_tracked_df_fires(self):
+        src = '''\
+df1 = spark.table("orders")
+df2 = spark.table("orders_archive")
+result = df1.union(df2)
+'''
+        self.assert_rule_found(src, "CY035")
+
+    def test_union_all_on_tracked_df_fires(self):
+        src = '''\
+df1 = spark.table("orders")
+df2 = spark.table("orders_archive")
+result = df1.unionAll(df2)
+'''
+        self.assert_rule_found(src, "CY035")
+
+    def test_union_by_name_no_finding(self):
+        src = '''\
+df1 = spark.table("orders")
+df2 = spark.table("orders_archive")
+result = df1.unionByName(df2)
+'''
+        self.assert_no_findings(src, "CY035")
+
+    def test_untracked_union_no_finding(self):
+        """Python set.union() should not be flagged."""
+        src = 'result = set_a.union(set_b)'
+        self.assert_no_findings(src, "CY035")
+
+    def test_union_in_chain_fires(self):
+        src = '''\
+df1 = spark.table("orders")
+df2 = spark.table("orders_archive")
+result = df1.filter(df1.id > 0).union(df2)
+'''
+        self.assert_rule_found(src, "CY035")
+
+
+# ---------------------------------------------------------------------------
+# CY036 — insert-into-deprecated
+# ---------------------------------------------------------------------------
+
+class TestCY036InsertInto(RuleTestBase):
+    """CY036: df.write.insertInto() should be replaced with writeTo API."""
+
+    def test_insert_into_no_overwrite_fires(self):
+        src = '''\
+df = spark.table("orders")
+df.write.insertInto("output_table")
+'''
+        self.assert_rule_found(src, "CY036")
+
+    def test_insert_into_overwrite_false_fires(self):
+        src = '''\
+df = spark.table("orders")
+df.write.insertInto("output_table", overwrite=False)
+'''
+        self.assert_rule_found(src, "CY036")
+
+    def test_insert_into_overwrite_true_fires(self):
+        src = '''\
+df = spark.table("orders")
+df.write.insertInto("output_table", overwrite=True)
+'''
+        findings = self.assert_rule_found(src, "CY036")
+        self.assertIn("overwritePartitions", findings[0].message)
+
+    def test_write_to_append_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+df.writeTo("output_table").append()
+'''
+        self.assert_no_findings(src, "CY036")
+
+    def test_untracked_df_no_finding(self):
+        src = 'some_obj.write.insertInto("table")'
+        self.assert_no_findings(src, "CY036")
+
+    def test_insert_into_append_message(self):
+        src = '''\
+df = spark.table("orders")
+df.write.insertInto("output_table")
+'''
+        findings = self.assert_rule_found(src, "CY036")
+        self.assertIn("append", findings[0].message)
+
+
+# ---------------------------------------------------------------------------
+# CY037 — functions-no-alias
+# ---------------------------------------------------------------------------
+
+class TestCY037FunctionsAlias(RuleTestBase):
+    """CY037: pyspark.sql.functions should be imported as F."""
+
+    def test_bare_import_fires(self):
+        self.assert_rule_found(
+            'from pyspark.sql import functions',
+            "CY037",
+        )
+
+    def test_wrong_alias_fires(self):
+        self.assert_rule_found(
+            'from pyspark.sql import functions as funcs',
+            "CY037",
+        )
+
+    def test_correct_alias_no_finding(self):
+        self.assert_no_findings(
+            'from pyspark.sql import functions as F',
+            "CY037",
+        )
+
+    def test_other_pyspark_import_no_finding(self):
+        self.assert_no_findings(
+            'from pyspark.sql import SparkSession',
+            "CY037",
+        )
+
+    def test_functions_from_other_module_no_finding(self):
+        self.assert_no_findings(
+            'from mymodule import functions',
+            "CY037",
+        )
+
+    def test_combined_import_with_correct_alias_no_finding(self):
+        self.assert_no_findings(
+            'from pyspark.sql import SparkSession, functions as F',
+            "CY037",
+        )
+
+    def test_combined_import_without_alias_fires(self):
+        self.assert_rule_found(
+            'from pyspark.sql import SparkSession, functions',
+            "CY037",
+        )
+
+
+# ---------------------------------------------------------------------------
+# CY038 — explode-before-filter
+# ---------------------------------------------------------------------------
+
+class TestCY038ExplodeBeforeFilter(RuleTestBase):
+    """CY038: .explode() before .filter() in a chain."""
+
+    def test_explode_then_filter_fires(self):
+        src = '''\
+df = spark.table("orders")
+result = df.explode("items").filter(df.id > 0)
+'''
+        self.assert_rule_found(src, "CY038")
+
+    def test_explode_then_where_fires(self):
+        src = '''\
+df = spark.table("orders")
+result = df.explode("items").where("id > 0")
+'''
+        self.assert_rule_found(src, "CY038")
+
+    def test_explode_then_filter_in_longer_chain_fires(self):
+        src = '''\
+df = spark.table("orders")
+result = df.withColumn("x", df.id).explode("items").filter(df.id > 0).select("id")
+'''
+        self.assert_rule_found(src, "CY038")
+
+    def test_filter_then_explode_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+result = df.filter(df.id > 0).explode("items")
+'''
+        self.assert_no_findings(src, "CY038")
+
+    def test_explode_alone_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+result = df.explode("items")
+'''
+        self.assert_no_findings(src, "CY038")
+
+    def test_filter_alone_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+result = df.filter(df.id > 0)
+'''
+        self.assert_no_findings(src, "CY038")
+
+    def test_untracked_df_no_finding(self):
+        src = 'result = some_list.explode("x").filter(lambda x: x)'
+        self.assert_no_findings(src, "CY038")
+
+    def test_only_one_finding_per_chain(self):
+        """A chain with explode -> filter -> filter should produce one finding."""
+        src = '''\
+df = spark.table("orders")
+result = df.explode("items").filter(df.id > 0).filter(df.val > 1)
+'''
+        self.assert_rule_found(src, "CY038", count=1)
+
+
 if __name__ == "__main__":
     unittest.main()

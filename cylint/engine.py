@@ -39,6 +39,13 @@ import cylint.rules.schema_inference   # noqa: F401
 import cylint.rules.count_emptiness    # noqa: F401
 import cylint.rules.missing_unpersist  # noqa: F401
 import cylint.rules.collect_iteration  # noqa: F401
+import cylint.rules.drop_select         # noqa: F401
+import cylint.rules.array_distinct_collect_list  # noqa: F401
+import cylint.rules.rdd_collect                  # noqa: F401
+import cylint.rules.union_by_name                # noqa: F401
+import cylint.rules.insert_into                  # noqa: F401
+import cylint.rules.functions_alias               # noqa: F401
+import cylint.rules.explode_filter_order          # noqa: F401
 
 from cylint.rules import get_all_rules
 
