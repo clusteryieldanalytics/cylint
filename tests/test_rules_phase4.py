@@ -868,5 +868,55 @@ df.write.insertInto("output_table")
         self.assertIn("append", findings[0].message)
 
 
+# ---------------------------------------------------------------------------
+# CY037 — functions-no-alias
+# ---------------------------------------------------------------------------
+
+class TestCY037FunctionsAlias(RuleTestBase):
+    """CY037: pyspark.sql.functions should be imported as F."""
+
+    def test_bare_import_fires(self):
+        self.assert_rule_found(
+            'from pyspark.sql import functions',
+            "CY037",
+        )
+
+    def test_wrong_alias_fires(self):
+        self.assert_rule_found(
+            'from pyspark.sql import functions as funcs',
+            "CY037",
+        )
+
+    def test_correct_alias_no_finding(self):
+        self.assert_no_findings(
+            'from pyspark.sql import functions as F',
+            "CY037",
+        )
+
+    def test_other_pyspark_import_no_finding(self):
+        self.assert_no_findings(
+            'from pyspark.sql import SparkSession',
+            "CY037",
+        )
+
+    def test_functions_from_other_module_no_finding(self):
+        self.assert_no_findings(
+            'from mymodule import functions',
+            "CY037",
+        )
+
+    def test_combined_import_with_correct_alias_no_finding(self):
+        self.assert_no_findings(
+            'from pyspark.sql import SparkSession, functions as F',
+            "CY037",
+        )
+
+    def test_combined_import_without_alias_fires(self):
+        self.assert_rule_found(
+            'from pyspark.sql import SparkSession, functions',
+            "CY037",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
