@@ -819,5 +819,54 @@ result = df1.filter(df1.id > 0).union(df2)
         self.assert_rule_found(src, "CY035")
 
 
+# ---------------------------------------------------------------------------
+# CY036 — insert-into-deprecated
+# ---------------------------------------------------------------------------
+
+class TestCY036InsertInto(RuleTestBase):
+    """CY036: df.write.insertInto() should be replaced with writeTo API."""
+
+    def test_insert_into_no_overwrite_fires(self):
+        src = '''\
+df = spark.table("orders")
+df.write.insertInto("output_table")
+'''
+        self.assert_rule_found(src, "CY036")
+
+    def test_insert_into_overwrite_false_fires(self):
+        src = '''\
+df = spark.table("orders")
+df.write.insertInto("output_table", overwrite=False)
+'''
+        self.assert_rule_found(src, "CY036")
+
+    def test_insert_into_overwrite_true_fires(self):
+        src = '''\
+df = spark.table("orders")
+df.write.insertInto("output_table", overwrite=True)
+'''
+        findings = self.assert_rule_found(src, "CY036")
+        self.assertIn("overwritePartitions", findings[0].message)
+
+    def test_write_to_append_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+df.writeTo("output_table").append()
+'''
+        self.assert_no_findings(src, "CY036")
+
+    def test_untracked_df_no_finding(self):
+        src = 'some_obj.write.insertInto("table")'
+        self.assert_no_findings(src, "CY036")
+
+    def test_insert_into_append_message(self):
+        src = '''\
+df = spark.table("orders")
+df.write.insertInto("output_table")
+'''
+        findings = self.assert_rule_found(src, "CY036")
+        self.assertIn("append", findings[0].message)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -67,6 +67,7 @@ Found 3 issues (1 critical, 2 warnings) in 1 file.
 | [CY033](https://clusteryield.app/analysis-reference.html#CY033) | warning | `array_distinct(collect_list(x))` — use `collect_set(x)` for single-step dedup |
 | [CY034](https://clusteryield.app/analysis-reference.html#CY034) | warning | `df.rdd.collect()` — use `.toPandas()` with Arrow for faster driver collection |
 | [CY035](https://clusteryield.app/analysis-reference.html#CY035) | warning | `.union()`/`.unionAll()` — use `.unionByName()` to avoid silent column misalignment |
+| [CY036](https://clusteryield.app/analysis-reference.html#CY036) | warning | `df.write.insertInto()` — use `df.writeTo().append()` / `.overwritePartitions()` |
 
 List all rules:
 
