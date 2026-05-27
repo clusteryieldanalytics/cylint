@@ -39,6 +39,7 @@ import cylint.rules.schema_inference   # noqa: F401
 import cylint.rules.count_emptiness    # noqa: F401
 import cylint.rules.missing_unpersist  # noqa: F401
 import cylint.rules.collect_iteration  # noqa: F401
+import cylint.rules.drop_select         # noqa: F401
 
 from cylint.rules import get_all_rules
 

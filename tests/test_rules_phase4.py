@@ -640,5 +640,54 @@ names = [r["name"] for r in rows]
         self.assert_rule_found(src, "CY031")
 
 
+# ---------------------------------------------------------------------------
+# CY032 — drop-before-select
+# ---------------------------------------------------------------------------
+
+class TestCY032DropSelect(RuleTestBase):
+    """CY032: .drop() followed by .select() is redundant."""
+
+    def test_drop_then_select_fires(self):
+        src = '''\
+df = spark.table("orders")
+result = df.drop("tmp").select("id", "name")
+'''
+        self.assert_rule_found(src, "CY032")
+
+    def test_drop_then_select_chained_fires(self):
+        src = '''\
+df = spark.table("orders")
+result = df.filter(df.id > 0).drop("tmp").select("id", "name")
+'''
+        self.assert_rule_found(src, "CY032")
+
+    def test_drop_alone_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+result = df.drop("tmp")
+'''
+        self.assert_no_findings(src, "CY032")
+
+    def test_select_alone_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+result = df.select("id", "name")
+'''
+        self.assert_no_findings(src, "CY032")
+
+    def test_untracked_df_no_finding(self):
+        src = '''\
+result = some_list.drop(0).select("x")
+'''
+        self.assert_no_findings(src, "CY032")
+
+    def test_select_before_drop_no_finding(self):
+        src = '''\
+df = spark.table("orders")
+result = df.select("id", "name").drop("id")
+'''
+        self.assert_no_findings(src, "CY032")
+
+
 if __name__ == "__main__":
     unittest.main()

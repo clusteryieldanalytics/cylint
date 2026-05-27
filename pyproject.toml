@@ -40,3 +40,8 @@ Issues = "https://github.com/clusteryieldanalytics/cylint/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["cylint"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
