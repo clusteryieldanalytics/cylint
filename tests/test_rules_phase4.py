@@ -640,5 +640,142 @@ names = [r["name"] for r in rows]
         self.assert_rule_found(src, "CY031")
 
 
+# ---------------------------------------------------------------------------
+# CY021 — .count() used only for logging/display
+# ---------------------------------------------------------------------------
+
+class TestCY021CountLog(RuleTestBase):
+    """CY021: .count() used only for logging or display — full scan wasted."""
+
+    # --- Should fire ---
+
+    def test_bare_count_statement_fires(self):
+        src = '''\
+df = spark.read.parquet("/data")
+df.count()
+'''
+        self.assert_rule_found(src, "CY021")
+
+    def test_print_direct_arg_fires(self):
+        src = '''\
+df = spark.read.parquet("/data")
+print(df.count())
+'''
+        self.assert_rule_found(src, "CY021")
+
+    def test_display_direct_arg_fires(self):
+        src = '''\
+df = spark.read.parquet("/data")
+display(df.count())
+'''
+        self.assert_rule_found(src, "CY021")
+
+    def test_print_fstring_arg_fires(self):
+        src = '''\
+df = spark.read.parquet("/data")
+print(f"Rows: {df.count()}")
+'''
+        self.assert_rule_found(src, "CY021")
+
+    def test_logging_info_direct_arg_fires(self):
+        src = '''\
+df = spark.read.parquet("/data")
+logging.info("Count: %d", df.count())
+'''
+        self.assert_rule_found(src, "CY021")
+
+    def test_logger_debug_fstring_fires(self):
+        src = '''\
+df = spark.read.parquet("/data")
+logger.debug(f"n={df.count()}")
+'''
+        self.assert_rule_found(src, "CY021")
+
+    def test_LOG_warning_fires(self):
+        src = '''\
+df = spark.read.parquet("/data")
+LOG.warning("size=%s", df.count())
+'''
+        self.assert_rule_found(src, "CY021")
+
+    def test_self_logger_info_fires(self):
+        src = '''\
+df = spark.read.parquet("/data")
+self.logger.info("count=%d", df.count())
+'''
+        self.assert_rule_found(src, "CY021")
+
+    def test_app_logger_error_fires(self):
+        src = '''\
+df = spark.read.parquet("/data")
+app_logger.error(df.count())
+'''
+        self.assert_rule_found(src, "CY021")
+
+    def test_print_multiarg_fires(self):
+        src = '''\
+df = spark.read.parquet("/data")
+print("Total:", df.count())
+'''
+        self.assert_rule_found(src, "CY021")
+
+    def test_chained_df_print_fires(self):
+        src = '''\
+df = spark.read.parquet("/data")
+print(df.filter("active = 1").count())
+'''
+        self.assert_rule_found(src, "CY021")
+
+    # --- Should NOT fire ---
+
+    def test_count_in_if_no_fire(self):
+        """CY020 territory — not CY021."""
+        src = '''\
+df = spark.read.parquet("/data")
+if df.count() > 0:
+    process(df)
+'''
+        self.assert_no_findings(src, "CY021")
+
+    def test_count_assigned_then_printed_no_fire(self):
+        """Assigned variable — Phase 2, out of scope."""
+        src = '''\
+df = spark.read.parquet("/data")
+n = df.count()
+print(n)
+'''
+        self.assert_no_findings(src, "CY021")
+
+    def test_count_assigned_and_returned_no_fire(self):
+        src = '''\
+df = spark.read.parquet("/data")
+total = df.count()
+return total
+'''
+        self.assert_no_findings(src, "CY021")
+
+    def test_untracked_count_no_fire(self):
+        src = '''\
+print(regular_obj.count())
+'''
+        self.assert_no_findings(src, "CY021")
+
+    def test_unknown_function_no_fire(self):
+        """some_func(df.count()) — not a known log/print call."""
+        src = '''\
+df = spark.read.parquet("/data")
+some_func(df.count())
+'''
+        self.assert_no_findings(src, "CY021")
+
+    def test_count_with_args_no_fire(self):
+        """df.count(col) is not a standard Spark count() — ignore."""
+        src = '''\
+df = spark.read.parquet("/data")
+print(df.count("id"))
+'''
+        self.assert_no_findings(src, "CY021")
+
+
 if __name__ == "__main__":
     unittest.main()
